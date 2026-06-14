@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能仓库拣货路径优化模拟器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-container">
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo"><i class="fas fa-warehouse"></i></div>
+      <div class="brand-text">
+        <h1>智能仓库拣货路径优化模拟器</h1>
+        <p>Warehouse Picking Route Optimizer</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btnRegenerate" class="btn btn-secondary btn-sm">
+        <i class="fas fa-dice"></i> 重新生成商品
+      </button>
+      <button id="btnReset" class="btn btn-secondary btn-sm">
+        <i class="fas fa-redo"></i> 重置布局
+      </button>
+    </div>
+  </header>
+
+  <main class="main-layout">
+    <!-- 左侧面板 -->
+    <aside class="panel panel-left">
+      <!-- 订单输入卡片 -->
+      <section class="card">
+        <div class="card-header">
+          <h2><i class="fas fa-shopping-cart accent-orange"></i> 订单管理</h2>
+          <div class="tabs tabs-order">
+            <button class="tab active" data-order-tab="single">单订单</button>
+            <button class="tab" data-order-tab="wave">波次拣货</button>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <!-- 单订单模式 -->
+          <div id="tab-single" class="tab-content active">
+            <div class="form-row">
+              <label>当前订单</label>
+              <select id="orderSelect" class="input-select">
+                <option value="O001">订单 #O001</option>
+                <option value="O002">订单 #O002</option>
+                <option value="O003">订单 #O003</option>
+                <option value="O004">订单 #O004</option>
+                <option value="O005">订单 #O005</option>
+                <option value="CUSTOM">自定义订单...</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>添加商品到订单 <span class="hint">(共 <span id="orderCount">0</span>/10 件)</span></label>
+              <div class="input-group">
+                <select id="productSelect" class="input-select flex-1">
+                  <option value="">-- 选择商品 --</option>
+                </select>
+                <button id="btnAddProduct" class="btn btn-primary btn-sm">
+                  <i class="fas fa-plus"></i> 添加
+                </button>
+              </div>
+            </div>
+            <div class="selected-products" id="selectedProducts">
+              <div class="empty-hint">
+                <i class="fas fa-box-open"></i>
+                <p>暂无商品，请添加5-10件商品开始拣货</p>
+              </div>
+            </div>
+            <div class="form-row mt-2">
+              <label>路径算法</label>
+              <div class="algo-toggle">
+                <label class="algo-radio">
+                  <input type="radio" name="algorithm" value="NN" checked>
+                  <div class="algo-card">
+                    <div class="algo-name">最近邻算法</div>
+                    <div class="algo-desc">NN · 贪心选择最近点</div>
+                  </div>
+                </label>
+                <label class="algo-radio">
+                  <input type="radio" name="algorithm" value="MST">
+                  <div class="algo-card">
+                    <div class="algo-name">最小生成树</div>
+                    <div class="algo-desc">MST · DFS遍历近似</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <button id="btnCalculate" class="btn btn-primary btn-block mt-2">
+              <i class="fas fa-route"></i> 计算最优路径
+            </button>
+          </div>
+
+          <!-- 波次拣货模式 -->
+          <div id="tab-wave" class="tab-content">
+            <div class="form-row">
+              <label>选择参与波次的订单 <span class="hint">(3-5个)</span></label>
+              <div class="wave-checkboxes" id="waveCheckboxes">
+              </div>
+            </div>
+            <div class="wave-summary mt-2">
+              <div class="summary-item">
+                <span class="summary-label">已选订单</span>
+                <span class="summary-value" id="waveOrderCount">0</span>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">合并商品</span>
+                <span class="summary-value" id="waveItemCount">0</span>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">去重后</span>
+                <span class="summary-value" id="waveUniqueCount">0</span>
+              </div>
+            </div>
+            <button id="btnRunWave" class="btn btn-primary btn-block mt-2">
+              <i class="fas fa-layer-group"></i> 执行波次拣货
+            </button>
+            <div class="wave-chart-box mt-2">
+              <canvas id="waveChart" height="180"></canvas>
+            </div>
+            <div id="waveResult" class="wave-result mt-2 hidden">
+              <div class="gain-box">
+                <i class="fas fa-chart-line"></i>
+                <span>距离节省 <strong id="waveSaveDist">0%</strong></span>
+                <span>效率提升 <strong id="waveGain">0%</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 拣货顺序拖拽卡片 -->
+      <section class="card mt-3">
+        <div class="card-header">
+          <h2><i class="fas fa-sort-numeric-down accent-cyan"></i> 拣货顺序</h2>
+          <span class="badge badge-info" id="stepCountBadge">0 步</span>
+        </div>
+        <div class="card-body card-body-scrollable">
+          <div class="sort-hint"><i class="fas fa-info-circle"></i> 拖拽列表项可调整顺序，实时更新总距离</div>
+          <ul id="sortableSteps" class="sortable-list">
+            <li class="empty-step">
+              <i class="fas fa-walking"></i>
+              <p>计算路径后显示拣货步骤</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+    </aside>
+
+    <!-- 中央地图 -->
+    <section class="panel panel-center">
+      <section class="card h-full">
+        <div class="card-header">
+          <h2><i class="fas fa-map-marked-alt accent-green"></i> 仓库布局 (10 × 10)</h2>
+          <div class="legend">
+            <span class="legend-item"><span class="dot dot-start"></span>出入口</span>
+            <span class="legend-item"><span class="dot dot-product"></span>商品</span>
+            <span class="legend-item"><span class="dot dot-hot"></span>热门</span>
+            <span class="legend-item"><span class="dot dot-zone-a"></span>A区</span>
+            <span class="legend-item"><span class="dot dot-zone-b"></span>B区</span>
+            <span class="legend-item"><span class="dot dot-zone-c"></span>C区</span>
+          </div>
+        </div>
+        <div class="card-body map-container">
+          <svg id="warehouseSvg" viewBox="0 0 720 720" preserveAspectRatio="xMidYMid meet"></svg>
+          <div id="mapTooltip" class="map-tooltip hidden"></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- 右侧面板 -->
+    <aside class="panel panel-right">
+      <!-- 指标卡片 -->
+      <section class="card">
+        <div class="card-header">
+          <h2><i class="fas fa-tachometer-alt accent-orange"></i> 关键指标</h2>
+        </div>
+        <div class="card-body">
+          <div class="metrics-grid">
+            <div class="metric-card metric-distance">
+              <div class="metric-icon"><i class="fas fa-road"></i></div>
+              <div class="metric-content">
+                <div class="metric-label">总行走距离</div>
+                <div class="metric-value" id="metricDistance">0</div>
+                <div class="metric-unit">米</div>
+              </div>
+            </div>
+            <div class="metric-card metric-time">
+              <div class="metric-icon"><i class="fas fa-clock"></i></div>
+              <div class="metric-content">
+                <div class="metric-label">预计总耗时</div>
+                <div class="metric-value" id="metricTime">0</div>
+                <div class="metric-unit">分钟</div>
+              </div>
+            </div>
+            <div class="metric-card metric-throughput">
+              <div class="metric-icon"><i class="fas fa-boxes"></i></div>
+              <div class="metric-content">
+                <div class="metric-label">拣货效率</div>
+                <div class="metric-value" id="metricThroughput">0</div>
+                <div class="metric-unit">件/小时</div>
+              </div>
+            </div>
+            <div class="metric-card metric-steps">
+              <div class="metric-icon"><i class="fas fa-shoe-prints"></i></div>
+              <div class="metric-content">
+                <div class="metric-label">拣货步数</div>
+                <div class="metric-value" id="metricSteps">0</div>
+                <div class="metric-unit">件次</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 储位优化卡片 -->
+      <section class="card mt-3">
+        <div class="card-header">
+          <h2><i class="fas fa-cubes accent-green"></i> 储位优化</h2>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label>热门区域设置</label>
+            <div class="zone-row">
+              <label class="zone-label zone-a"><input type="checkbox" id="zoneHotA" checked> A区 (近入口)</label>
+              <label class="zone-label zone-b"><input type="checkbox" id="zoneHotB"> B区 (中部)</label>
+              <label class="zone-label zone-c"><input type="checkbox" id="zoneHotC"> C区 (远区)</label>
+            </div>
+          </div>
+          <div class="form-row mt-2">
+            <label>热门商品占比: <span id="hotRatioText">20%</span></label>
+            <input type="range" id="hotRatio" min="10" max="50" value="20" class="input-range">
+          </div>
+          <div class="btn-row mt-2">
+            <button id="btnOptimizeSlot" class="btn btn-secondary btn-sm">
+              <i class="fas fa-magic"></i> 智能储位优化
+            </button>
+            <button id="btnApplyHot" class="btn btn-outline btn-sm">
+              <i class="fas fa-fire"></i> 应用热门配置
+            </button>
+          </div>
+          <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 智能优化将热门商品移动至A区靠近出入口</div>
+        </div>
+      </section>
+
+      <!-- 报告与导出 -->
+      <section class="card mt-3">
+        <div class="card-header">
+          <h2><i class="fas fa-file-alt accent-cyan"></i> 报告与导出</h2>
+        </div>
+        <div class="card-body">
+          <div class="btn-row">
+            <button id="btnGenerateReport" class="btn btn-primary btn-sm">
+              <i class="fas fa-file-invoice"></i> 生成拣货报告
+            </button>
+            <button id="btnExportCsv" class="btn btn-secondary btn-sm">
+              <i class="fas fa-file-csv"></i> 导出CSV
+            </button>
+          </div>
+          <div class="report-preview mt-2" id="reportPreview">
+            <div class="empty-hint small">
+              <i class="fas fa-clipboard-list"></i>
+              <p>执行路径计算后可生成详细报告</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<!-- 模态框:报告详情 -->
+<div id="reportModal" class="modal hidden">
+  <div class="modal-overlay" data-close="reportModal"></div>
+  <div class="modal-box modal-lg">
+    <div class="modal-header">
+      <h3><i class="fas fa-file-invoice accent-orange"></i> 拣货作业详细报告</h3>
+      <button class="modal-close" data-close="reportModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="reportContent" class="report-content"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary btn-sm" data-close="reportModal">关闭</button>
+      <button id="btnPrintReport" class="btn btn-primary btn-sm"><i class="fas fa-print"></i> 打印报告</button>
+    </div>
+  </div>
+</div>
+
+<!-- 加载模块 -->
+<script src="js/store.js"></script>
+<script src="js/efficiency.js"></script>
+<script src="js/algorithms.js"></script>
+<script src="js/slotting.js"></script>
+<script src="js/wave.js"></script>
+<script src="js/report.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>
