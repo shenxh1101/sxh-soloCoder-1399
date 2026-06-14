@@ -65,6 +65,10 @@ const Renderer = (function () {
     startGrad.innerHTML = '<stop offset="0%" stop-color="#ff8a5b"/><stop offset="100%" stop-color="#c04618"/>';
     defs.appendChild(startGrad);
 
+    const sortingGrad = createEl('linearGradient', { id: 'sortingGrad', x1: '0', y1: '0', x2: '1', y2: '1' });
+    sortingGrad.innerHTML = '<stop offset="0%" stop-color="#52b788"/><stop offset="100%" stop-color="#1b4332"/>';
+    defs.appendChild(sortingGrad);
+
     const hotGrad = createEl('radialGradient', { id: 'hotGrad' });
     hotGrad.innerHTML = '<stop offset="0%" stop-color="#fff176"/><stop offset="60%" stop-color="#ffc107"/><stop offset="100%" stop-color="#ff9800"/>';
     defs.appendChild(hotGrad);
@@ -74,29 +78,47 @@ const Renderer = (function () {
 
   function renderGrid() {
     const g = createEl('g', { class: 'grid-layer' });
+    const editMode = Store.getState().editMode;
+    const obstacles = Store.getState().obstacles;
+    const obstacleSet = new Set(obstacles.map(o => `${o.x},${o.y}`));
 
     for (let y = 0; y < GRID; y++) {
       for (let x = 0; x < GRID; x++) {
         const zone = Slotting.determineZone(x, y);
         const rect = cellRect(x, y);
         const colors = ZONE_COLORS[zone];
+        const isObs = obstacleSet.has(`${x},${y}`);
         const r = createEl('rect', {
-          class: 'cell-rect',
+          class: 'cell-rect' + (editMode ? ' edit-mode' : ''),
           x: rect.x,
           y: rect.y,
           width: rect.w,
           height: rect.h,
           rx: 6,
           ry: 6,
-          fill: colors.fill,
-          stroke: colors.stroke,
-          'stroke-width': 1,
-          'stroke-opacity': 0.35,
+          fill: isObs ? 'rgba(108,51,51,0.55)' : colors.fill,
+          stroke: isObs ? '#e63946' : colors.stroke,
+          'stroke-width': isObs ? 2 : 1,
+          'stroke-opacity': isObs ? 0.9 : 0.35,
           'data-x': x,
           'data-y': y,
           'data-zone': zone,
         });
         g.appendChild(r);
+
+        if (isObs) {
+          const center = cellCenter(x, y);
+          const icon = createEl('text', {
+            x: center.cx,
+            y: center.cy + 5,
+            'text-anchor': 'middle',
+            'font-size': 18,
+            'pointer-events': 'none',
+            class: 'obstacle-icon',
+          });
+          icon.innerHTML = '🧱';
+          g.appendChild(icon);
+        }
       }
     }
 
@@ -142,42 +164,71 @@ const Renderer = (function () {
     svgEl.appendChild(g);
   }
 
-  function renderStart() {
+  function renderStartAndSorting() {
     const g = createEl('g', { class: 'start-layer' });
-    const sp = Store.START_POINT;
-    const center = cellCenter(sp.x, sp.y);
-    const rect = cellRect(sp.x, sp.y);
+    const st = Store.getState();
 
-    const bg = createEl('rect', {
-      x: rect.x, y: rect.y, width: rect.w, height: rect.h,
-      rx: 8, ry: 8,
-      fill: 'url(#startGrad)',
-      class: 'start-cell',
-      opacity: 0.92,
-    });
-    g.appendChild(bg);
+    function renderPoint(pt, label, icon, gradientId) {
+      const center = cellCenter(pt.x, pt.y);
+      const rect = cellRect(pt.x, pt.y);
 
-    const icon = createEl('text', {
-      x: center.cx, y: center.cy - 4,
-      'text-anchor': 'middle',
-      fill: '#fff',
-      'font-size': 16,
-    });
-    icon.innerHTML = '🚪';
-    g.appendChild(icon);
+      const bg = createEl('rect', {
+        x: rect.x, y: rect.y, width: rect.w, height: rect.h,
+        rx: 8, ry: 8,
+        fill: `url(#${gradientId})`,
+        class: 'start-cell',
+        opacity: 0.92,
+      });
+      g.appendChild(bg);
 
-    const label = createEl('text', {
-      x: center.cx, y: center.cy + 14,
-      'text-anchor': 'middle',
-      fill: '#fff',
-      'font-size': 9,
-      'font-family': 'JetBrains Mono, monospace',
-      'font-weight': 600,
-    });
-    label.textContent = '入口';
-    g.appendChild(label);
+      const ic = createEl('text', {
+        x: center.cx, y: center.cy - 4,
+        'text-anchor': 'middle',
+        fill: '#fff',
+        'font-size': 16,
+      });
+      ic.innerHTML = icon;
+      g.appendChild(ic);
+
+      const lb = createEl('text', {
+        x: center.cx, y: center.cy + 14,
+        'text-anchor': 'middle',
+        fill: '#fff',
+        'font-size': 9,
+        'font-family': 'JetBrains Mono, monospace',
+        'font-weight': 600,
+      });
+      lb.textContent = label;
+      g.appendChild(lb);
+    }
+
+    renderPoint(Store.START_POINT, '入口', '🚪', 'startGrad');
+
+    const ss = st.sortingStation;
+    if (ss && (ss.x !== Store.START_POINT.x || ss.y !== Store.START_POINT.y)) {
+      renderPoint(ss, '分拣台', '📦', 'sortingGrad');
+    }
+
+    const obstacles = st.obstacles;
+    obstacles.forEach(() => {});
 
     svgEl.appendChild(g);
+
+    svgEl.querySelectorAll('.cell-rect').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const mode = Store.getState().editMode;
+        if (!mode) return;
+        const x = parseInt(cell.dataset.x, 10);
+        const y = parseInt(cell.dataset.y, 10);
+        if (mode === 'obstacle') {
+          Store.toggleObstacle(x, y);
+          Renderer.renderFull();
+        } else if (mode === 'sorting') {
+          Store.setSortingStation(x, y);
+          Renderer.renderFull();
+        }
+      });
+    });
   }
 
   function renderProducts() {
@@ -291,37 +342,64 @@ const Renderer = (function () {
   function renderPath(pathResult, opts = {}) {
     if (!pathResult || !pathResult.steps || pathResult.steps.length === 0) return;
 
+    const color = opts.color || { stroke: '#00b4d8', fill: '#ff6b35' };
     const g = createEl('g', { class: 'path-layer' });
     const steps = pathResult.steps;
-    const productIdsInOrder = [];
 
-    const points = [];
-    points.push({ ...Store.START_POINT, id: '__START__' });
-    steps.forEach(s => {
-      const p = Store.getProductById(s.productId);
-      if (p) {
-        points.push({ x: p.x, y: p.y, id: p.id });
-        productIdsInOrder.push(p.id);
+    const buildSegmentFromGridPath = (gridPath, idx, total, isReturn) => {
+      if (!gridPath || gridPath.length < 2) return '';
+      let d = '';
+      for (let i = 0; i < gridPath.length; i++) {
+        const p = cellCenter(gridPath[i].x, gridPath[i].y);
+        if (i === 0) d += `M ${p.cx} ${p.cy}`;
+        else d += ` L ${p.cx} ${p.cy}`;
       }
-    });
-    points.push({ ...Store.START_POINT, id: '__END__' });
+      return d;
+    };
 
-    for (let i = 1; i < points.length; i++) {
-      const from = cellCenter(points[i - 1].x, points[i - 1].y);
-      const to = cellCenter(points[i].x, points[i].y);
-      const isReturn = (i === points.length - 1);
-      const pathD = buildCurvePath(from, to, i, points.length);
-
+    steps.forEach((s, i) => {
+      let pathD;
+      if (s.gridPath && s.gridPath.length > 1) {
+        pathD = buildSegmentFromGridPath(s.gridPath, i, steps.length, false);
+      } else {
+        const from = cellCenter(s.from.x, s.from.y);
+        const to = cellCenter(s.to.x, s.to.y);
+        pathD = buildCurvePath(from, to, i, steps.length);
+      }
       const line = createEl('path', {
         d: pathD,
         fill: 'none',
-        stroke: isReturn ? '#ff6b35' : '#00b4d8',
-        'stroke-width': isReturn ? 3 : 4,
+        stroke: color.stroke,
+        'stroke-width': 4,
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
-        'stroke-dasharray': isReturn ? '8 5' : 'none',
-        opacity: isReturn ? 0.7 : 0.85,
-        class: isReturn ? 'path-line-return' : 'path-line',
+        opacity: 0.85,
+        class: 'path-line',
+        filter: 'url(#pathGlow)',
+        style: `animation-delay:${i * 0.08}s;`,
+      });
+      g.appendChild(line);
+    });
+
+    let returnPath = pathResult.returnPath;
+    if (!returnPath || returnPath.length === 0) {
+      if (steps.length > 0) {
+        const last = steps[steps.length - 1];
+        returnPath = [last.to, Store.START_POINT];
+      }
+    }
+    if (returnPath && returnPath.length > 1) {
+      const returnD = buildSegmentFromGridPath(returnPath, steps.length, steps.length + 1, true);
+      const line = createEl('path', {
+        d: returnD,
+        fill: 'none',
+        stroke: '#ff6b35',
+        'stroke-width': 3,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'stroke-dasharray': '8 5',
+        opacity: 0.7,
+        class: 'path-line-return',
         filter: 'url(#pathGlow)',
       });
       g.appendChild(line);
@@ -339,7 +417,7 @@ const Renderer = (function () {
         cx: center.cx - CELL * 0.3,
         cy: center.cy - CELL * 0.32,
         r: r,
-        fill: '#ff6b35',
+        fill: color.fill || '#ff6b35',
         stroke: '#fff',
         'stroke-width': 2,
         class: 'step-bubble',
@@ -365,7 +443,6 @@ const Renderer = (function () {
     g.appendChild(bubbleG);
 
     svgEl.appendChild(g);
-    return productIdsInOrder;
   }
 
   function buildCurvePath(from, to, index, total) {
@@ -391,13 +468,68 @@ const Renderer = (function () {
     clear();
     renderDefs();
     renderGrid();
-    renderStart();
+    renderStartAndSorting();
     renderProducts();
 
-    const path = Store.getState().pathResult;
-    if (path && path.steps && path.steps.length > 0) {
-      renderPath(path, extra);
+    const st = Store.getState();
+    const mp = st.multiPickerResult;
+    if (mp && mp.pickers && mp.pickers.length > 1) {
+      mp.pickers.forEach(pk => {
+        if (pk.path && pk.path.steps && pk.path.steps.length > 0) {
+          renderPath(pk.path, { color: pk.pickerColor });
+        }
+      });
+    } else if (st.pathResult && st.pathResult.steps && st.pathResult.steps.length > 0) {
+      renderPath(st.pathResult, extra);
     }
+  }
+
+  function renderMultiPickerPanel(el, mp) {
+    if (!el || !mp) return;
+    if (!mp.pickers || mp.pickers.length <= 1) {
+      el.innerHTML = '<div class="empty-hint small"><i class="fas fa-users"></i><p>设置 2-4 个拣货员查看协同结果</p></div>';
+      return;
+    }
+    let rows = '';
+    mp.pickers.forEach(pk => {
+      rows += `
+        <div class="picker-card">
+          <div class="picker-head" style="border-left:3px solid ${pk.pickerColor.stroke};">
+            <div class="picker-name">
+              <span class="picker-dot" style="background:${pk.pickerColor.stroke};"></span>
+              ${pk.pickerName}
+            </div>
+            <div class="picker-count">${pk.itemCount} 件</div>
+          </div>
+          <div class="picker-metrics">
+            <div><span>${pk.path.totalDistance}</span>m</div>
+            <div><span>${Math.round(pk.path.totalTimeMin * 10) / 10}</span>分</div>
+            <div><span>${pk.path.throughput}</span>件/h</div>
+          </div>
+        </div>
+      `;
+    });
+    el.innerHTML = `
+      <div class="multi-summary">
+        <div class="multi-summary-item">
+          <span class="ms-label">单人耗时</span>
+          <span class="ms-val bad">${Math.round(mp.singlePicker.totalTimeMin * 10) / 10} 分</span>
+        </div>
+        <div class="multi-summary-item">
+          <span class="ms-label">${mp.pickerCount}人耗时</span>
+          <span class="ms-val good">${mp.overallTimeMin} 分</span>
+        </div>
+        <div class="multi-summary-item">
+          <span class="ms-label">节省</span>
+          <span class="ms-val good">${mp.savedTimePct}%</span>
+        </div>
+        <div class="multi-summary-item">
+          <span class="ms-label">整体吞吐</span>
+          <span class="ms-val">${mp.overallThroughput} 件/h</span>
+        </div>
+      </div>
+      <div class="picker-list">${rows}</div>
+    `;
   }
 
   function renderSelectedProducts(el, items) {
@@ -615,6 +747,7 @@ const Renderer = (function () {
     renderWaveCheckboxes,
     renderMetrics,
     renderWaveChart,
+    renderMultiPickerPanel,
     hideTooltip,
   };
 })();

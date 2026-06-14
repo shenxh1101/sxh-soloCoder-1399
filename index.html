@@ -164,11 +164,13 @@
           <h2><i class="fas fa-map-marked-alt accent-green"></i> 仓库布局 (10 × 10)</h2>
           <div class="legend">
             <span class="legend-item"><span class="dot dot-start"></span>出入口</span>
+            <span class="legend-item"><span class="dot dot-sorting"></span>分拣台</span>
             <span class="legend-item"><span class="dot dot-product"></span>商品</span>
             <span class="legend-item"><span class="dot dot-hot"></span>热门</span>
             <span class="legend-item"><span class="dot dot-zone-a"></span>A区</span>
             <span class="legend-item"><span class="dot dot-zone-b"></span>B区</span>
             <span class="legend-item"><span class="dot dot-zone-c"></span>C区</span>
+            <span class="legend-item"><span class="dot dot-obstacle"></span>障碍</span>
           </div>
         </div>
         <div class="card-body map-container">
@@ -223,6 +225,54 @@
         </div>
       </section>
 
+      <!-- 多人协同卡片 -->
+      <section class="card mt-3">
+        <div class="card-header">
+          <h2><i class="fas fa-users accent-purple"></i> 多人协同拣货</h2>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label>拣货员数量</label>
+            <div class="picker-row" id="pickerRow">
+              <button class="picker-btn" data-pickers="1">1人</button>
+              <button class="picker-btn" data-pickers="2">2人</button>
+              <button class="picker-btn" data-pickers="3">3人</button>
+              <button class="picker-btn" data-pickers="4">4人</button>
+            </div>
+          </div>
+          <button id="btnRunMulti" class="btn btn-primary btn-sm btn-block mt-2">
+            <i class="fas fa-route"></i> 执行多人分单
+          </button>
+          <div id="multiPickerPanel" class="mt-2"></div>
+        </div>
+      </section>
+
+      <!-- 地图编辑卡片 -->
+      <section class="card mt-3">
+        <div class="card-header">
+          <h2><i class="fas fa-pen-ruler accent-cyan"></i> 地图编辑</h2>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label>编辑模式 (点击地图格子)</label>
+            <div class="picker-row" id="editModeRow">
+              <button class="picker-btn" data-edit="null">浏览</button>
+              <button class="picker-btn" data-edit="obstacle">🧱 障碍</button>
+              <button class="picker-btn" data-edit="sorting">📦 分拣台</button>
+            </div>
+          </div>
+          <div class="btn-row mt-2">
+            <button id="btnClearObstacles" class="btn btn-outline btn-sm">
+              <i class="fas fa-eraser"></i> 清空障碍
+            </button>
+            <button id="btnReportMulti" class="btn btn-secondary btn-sm">
+              <i class="fas fa-file-invoice"></i> 多人报告
+            </button>
+          </div>
+          <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 选择编辑模式后点击地图格子：障碍可放置/移除，分拣台可重新定位</div>
+        </div>
+      </section>
+
       <!-- 储位优化卡片 -->
       <section class="card mt-3">
         <div class="card-header">
@@ -249,7 +299,7 @@
               <i class="fas fa-fire"></i> 应用热门配置
             </button>
           </div>
-          <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 智能优化将热门商品移动至A区靠近出入口</div>
+          <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 智能优化将热门商品移动至勾选的热门区域</div>
         </div>
       </section>
 
@@ -302,6 +352,7 @@
 <script src="js/efficiency.js"></script>
 <script src="js/algorithms.js"></script>
 <script src="js/slotting.js"></script>
+<script src="js/multiPicker.js"></script>
 <script src="js/wave.js"></script>
 <script src="js/report.js"></script>
 <script src="js/renderer.js"></script>

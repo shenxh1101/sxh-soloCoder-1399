@@ -15,10 +15,13 @@
       Store.applyHotnessToProducts();
       Store.setCurrentOrder('O001');
       Store.setAlgorithm('NN');
+      Store.setPickers(1);
 
       this.bindEvents();
       this.setupSortable();
       this.syncUI();
+      this.updatePickerBtns();
+      this.updateEditModeBtns();
       Renderer.renderFull();
     },
 
@@ -46,17 +49,41 @@
       );
       this.updateWaveSummary();
 
-      if (st.pathResult) {
+      if (st.multiPickerResult && st.multiPickerResult.pickers && st.multiPickerResult.pickers.length > 1) {
+        Renderer.renderMetrics({
+          distance: st.multiPickerResult.totalDistance,
+          time: st.multiPickerResult.overallTimeMin,
+          throughput: st.multiPickerResult.overallThroughput,
+          steps: st.multiPickerResult.totalItems,
+        });
+        Renderer.renderMultiPickerPanel(document.getElementById('multiPickerPanel'), st.multiPickerResult);
+      } else if (st.pathResult) {
         Renderer.renderMetrics({
           distance: st.pathResult.totalDistance,
           time: st.pathResult.totalTimeMin,
           throughput: st.pathResult.throughput,
           steps: st.pathResult.itemCount,
         });
-        Renderer.renderFull();
-        document.getElementById('reportPreview').innerHTML = Report.buildMiniReport(st.pathResult);
+        document.getElementById('multiPickerPanel').innerHTML =
+          '<div class="empty-hint small"><i class="fas fa-users"></i><p>设置 2-4 个拣货员并执行多人分单</p></div>';
       } else {
         Renderer.renderMetrics({ distance: 0, time: 0, throughput: 0, steps: 0 });
+        document.getElementById('multiPickerPanel').innerHTML =
+          '<div class="empty-hint small"><i class="fas fa-users"></i><p>设置 2-4 个拣货员并执行多人分单</p></div>';
+      }
+
+      if (st.pathResult || st.multiPickerResult) {
+        Renderer.renderFull();
+        document.getElementById('reportPreview').innerHTML = Report.buildMiniReport(
+          st.multiPickerResult
+            ? st.multiPickerResult.pickers.reduce((acc, pk) => {
+                if (!acc || pk.path.totalTimeMin > acc.totalTimeMin) return pk.path;
+                return acc;
+              }, null) || st.pathResult
+            : st.pathResult
+        );
+      } else {
+        Renderer.renderFull();
         document.getElementById('reportPreview').innerHTML = `
           <div class="empty-hint small">
             <i class="fas fa-clipboard-list"></i>
@@ -67,15 +94,21 @@
 
     bindEvents() {
       Store.subscribe((event, payload) => {
-        if (event === 'products:changed' || event === 'reset') {
+        if (['products:changed', 'reset', 'obstacles:changed', 'sortingStation:changed', 'editMode:changed'].includes(event)) {
           Renderer.renderFull();
           Renderer.renderProductOptions(
             document.getElementById('productSelect'),
             Store.getState().currentOrderItems,
           );
         }
-        if (event === 'path:changed' || event === 'order:itemsChanged' || event === 'order:changed' || event === 'wave:changed') {
+        if (['path:changed', 'order:itemsChanged', 'order:changed', 'wave:changed', 'multiPicker:changed', 'pickers:changed'].includes(event)) {
           this.syncUI();
+        }
+        if (event === 'editMode:changed' || event === 'obstacles:changed' || event === 'sortingStation:changed') {
+          this.updateEditModeBtns();
+        }
+        if (event === 'pickers:changed') {
+          this.updatePickerBtns();
         }
       });
 
@@ -95,11 +128,13 @@
           Store.getState().currentOrderId = 'CUSTOM';
           Store.getState().currentOrderItems = [];
           Store.setPathResult(null);
+          Store.setMultiPickerResult(null);
           this.syncUI();
           this.flash('info', '已切换到自定义订单，请手动添加商品');
         } else {
           Store.setCurrentOrder(val);
           Store.setPathResult(null);
+          Store.setMultiPickerResult(null);
         }
       });
 
@@ -114,7 +149,7 @@
         const added = Store.addProductToOrder(pid);
         if (added) {
           sel.value = '';
-          if (Store.getState().pathResult) Store.setPathResult(null);
+          if (Store.getState().pathResult) { Store.setPathResult(null); Store.setMultiPickerResult(null); }
         }
       });
 
@@ -123,7 +158,7 @@
         if (!btn) return;
         const pid = btn.dataset.remove;
         Store.removeProductFromOrder(pid);
-        if (Store.getState().pathResult) Store.setPathResult(null);
+        if (Store.getState().pathResult) { Store.setPathResult(null); Store.setMultiPickerResult(null); }
       });
 
       document.querySelectorAll('input[name="algorithm"]').forEach(r => {
@@ -141,6 +176,7 @@
         const algo = Store.getState().algorithm;
         const result = PickingAlgorithm.solve(items, algo);
         Store.setPathResult(result);
+        Store.setMultiPickerResult(null);
         this.flash('success', `路径计算完成 · ${result.itemCount}件 · ${result.totalDistance}m`);
       });
 
@@ -150,6 +186,7 @@
         Store.applyHotnessToProducts();
         Store.setCurrentOrder('O001');
         Store.setPathResult(null);
+        Store.setMultiPickerResult(null);
         document.getElementById('orderSelect').value = 'O001';
         this.flash('success', '已重新生成所有商品和订单');
       });
@@ -158,6 +195,8 @@
         Store.resetAll();
         Store.applyHotnessToProducts();
         document.getElementById('orderSelect').value = 'O001';
+        this.updatePickerBtns();
+        this.updateEditModeBtns();
         this.flash('success', '已重置到初始状态');
       });
 
@@ -177,22 +216,14 @@
 
       document.getElementById('btnApplyHot').addEventListener('click', () => {
         Store.applyHotnessToProducts();
-        if (Store.getState().pathResult) {
-          const items = Store.getState().currentOrderItems;
-          const algo = Store.getState().algorithm;
-          if (items.length >= 5) Store.setPathResult(PickingAlgorithm.solve(items, algo));
-        }
+        this.recomputeIfNeeded();
         this.flash('success', '已应用热门商品配置');
       });
 
       document.getElementById('btnOptimizeSlot').addEventListener('click', () => {
         const changes = Slotting.optimizeByHotness();
         Store.applyHotnessToProducts();
-        if (Store.getState().pathResult) {
-          const items = Store.getState().currentOrderItems;
-          const algo = Store.getState().algorithm;
-          if (items.length >= 5) Store.setPathResult(PickingAlgorithm.solve(items, algo));
-        }
+        this.recomputeIfNeeded();
         Renderer.renderFull();
         this.flash('success', `智能储位优化完成 · 调整了${changes}个商品位置`);
       });
@@ -211,6 +242,7 @@
         const res = WavePicking.runWave(ids, algo);
         Store.setWaveResult(res);
         Store.setPathResult(res.mergedPath);
+        Store.setMultiPickerResult(null);
         document.getElementById('waveResult').classList.remove('hidden');
 
         Renderer.renderWaveChart(document.getElementById('waveChart'), res);
@@ -228,8 +260,62 @@
         this.flash('success', `波次${res.waveId}完成 · 距离节省${res.distanceSaved}%`);
       });
 
+      document.querySelectorAll('#pickerRow .picker-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const n = parseInt(btn.dataset.pickers, 10);
+          Store.setPickers(n);
+        });
+      });
+
+      document.querySelectorAll('#editModeRow .picker-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mode = btn.dataset.edit === 'null' ? null : btn.dataset.edit;
+          Store.setEditMode(mode);
+        });
+      });
+
+      document.getElementById('btnRunMulti').addEventListener('click', () => {
+        const items = Store.getState().currentOrderItems;
+        const n = Store.getState().pickers;
+        if (items.length < 5) {
+          this.flash('warn', '订单至少需要5件商品才能多人协同');
+          return;
+        }
+        if (n < 2) {
+          this.flash('warn', '请选择 2-4 个拣货员');
+          return;
+        }
+        const algo = Store.getState().algorithm;
+        const res = MultiPicker.splitForPickers(items, n, algo);
+        Store.setMultiPickerResult(res);
+        Store.setPathResult(null);
+        this.flash('success', `多人协同分单完成 · ${n}人节省${res.savedTimePct}%时间`);
+      });
+
+      document.getElementById('btnClearObstacles').addEventListener('click', () => {
+        Store.clearObstacles();
+        this.flash('info', '已清空所有障碍');
+      });
+
+      document.getElementById('btnReportMulti').addEventListener('click', () => {
+        const mp = Store.getState().multiPickerResult;
+        if (!mp || !mp.pickers || mp.pickers.length <= 1) {
+          this.flash('warn', '请先执行多人分单');
+          return;
+        }
+        const html = Report.buildMultiPickerReportHtml(mp);
+        document.getElementById('reportContent').innerHTML = html;
+        this.openModal('reportModal');
+      });
+
       document.getElementById('btnGenerateReport').addEventListener('click', () => {
         const st = Store.getState();
+        if (st.multiPickerResult && st.multiPickerResult.pickers && st.multiPickerResult.pickers.length > 1) {
+          const html = Report.buildMultiPickerReportHtml(st.multiPickerResult);
+          document.getElementById('reportContent').innerHTML = html;
+          this.openModal('reportModal');
+          return;
+        }
         if (!st.pathResult) {
           this.flash('warn', '请先计算路径');
           return;
@@ -249,11 +335,14 @@
 
       document.getElementById('btnExportCsv').addEventListener('click', () => {
         const st = Store.getState();
-        if (!st.pathResult) {
+        const path = st.pathResult
+          || (st.multiPickerResult && st.multiPickerResult.pickers && st.multiPickerResult.pickers.length > 0
+            ? st.multiPickerResult.pickers[0].path : null);
+        if (!path) {
           this.flash('warn', '请先计算路径');
           return;
         }
-        const csv = Report.exportPathCsv(st.pathResult, { orderId: st.currentOrderId });
+        const csv = Report.exportPathCsv(path, { orderId: st.currentOrderId });
         const fname = `picking_route_${st.currentOrderId}_${Date.now().toString().slice(-6)}.csv`;
         Report.downloadFile(fname, csv, 'text/csv;charset=utf-8');
         this.flash('success', `路径已导出: ${fname}`);
@@ -276,6 +365,38 @@
             m.classList.add('hidden');
           });
         }
+      });
+    },
+
+    recomputeIfNeeded() {
+      const st = Store.getState();
+      const items = st.currentOrderItems;
+      const algo = st.algorithm;
+      if (items.length >= 5) {
+        const path = PickingAlgorithm.solve(items, algo);
+        Store.setPathResult(path);
+        if (st.pickers >= 2) {
+          const mp = MultiPicker.splitForPickers(items, st.pickers, algo);
+          Store.setMultiPickerResult(mp);
+        }
+      }
+    },
+
+    updatePickerBtns() {
+      const n = Store.getState().pickers;
+      document.querySelectorAll('#pickerRow .picker-btn').forEach(btn => {
+        const v = parseInt(btn.dataset.pickers, 10);
+        if (v === n) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    },
+
+    updateEditModeBtns() {
+      const mode = Store.getState().editMode;
+      document.querySelectorAll('#editModeRow .picker-btn').forEach(btn => {
+        const v = btn.dataset.edit === 'null' ? null : btn.dataset.edit;
+        if (v === mode) btn.classList.add('active');
+        else btn.classList.remove('active');
       });
     },
 

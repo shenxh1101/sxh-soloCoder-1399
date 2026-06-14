@@ -6,6 +6,7 @@ const Store = (function () {
   const START_POINT = { x: 0, y: 0 };
   const WALK_SPEED = 1;
   const SINGLE_PICK_TIME = 5;
+  const SINGLE_SORT_TIME = 4;
 
   const PRODUCT_NAMES = [
     '牛奶 250ml', '面包 全麦', '矿泉水 500ml', '薯片 原味', '方便面 红烧',
@@ -32,6 +33,11 @@ const Store = (function () {
     waveResult: null,
     hotRatio: 0.2,
     hotZones: { A: true, B: false, C: false },
+    obstacles: [],
+    sortingStation: { x: 0, y: 0 },
+    pickers: 1,
+    multiPickerResult: null,
+    editMode: null,
     listeners: [],
   };
 
@@ -173,21 +179,33 @@ const Store = (function () {
       const p = getProductById(s.productId);
       if (p) points.push({ x: p.x, y: p.y });
     });
-    points.push(START_POINT);
 
     for (let i = 1; i < points.length; i++) {
       const from = points[i - 1];
       const to = points[i];
-      const dist = Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
+      const sp = PickingAlgorithm.shortestPath(from, to);
+      const dist = sp.distance;
       if (i - 1 < newSteps.length) {
         newSteps[i - 1].from = from;
         newSteps[i - 1].to = to;
         newSteps[i - 1].distance = dist;
         newSteps[i - 1].travelTime = dist / WALK_SPEED;
+        newSteps[i - 1].gridPath = sp.path;
       }
     }
 
-    const evalRes = Efficiency.evaluatePath(newSteps, state.algorithm);
+    let returnDistance = 0;
+    let returnPath = [];
+    if (points.length > 1) {
+      const last = points[points.length - 1];
+      const rsp = PickingAlgorithm.shortestPath(last, START_POINT);
+      returnDistance = rsp.distance;
+      returnPath = rsp.path;
+    }
+
+    const evalRes = Efficiency.evaluatePath(newSteps, state.algorithm, { returnDistance });
+    evalRes.gridPathSegments = newSteps.map(s => s.gridPath || []);
+    evalRes.returnPath = returnPath;
     state.pathResult = evalRes;
     notify('path:changed', { result: evalRes });
   }
@@ -248,7 +266,58 @@ const Store = (function () {
     setCurrentOrder('O001');
     state.pathResult = null;
     state.waveResult = null;
+    state.multiPickerResult = null;
+    state.obstacles = [];
+    state.sortingStation = { x: 0, y: 0 };
+    state.pickers = 1;
+    state.editMode = null;
     notify('reset', {});
+  }
+
+  function toggleObstacle(x, y) {
+    if ((x === state.sortingStation.x && y === state.sortingStation.y) ||
+        (x === START_POINT.x && y === START_POINT.y)) return false;
+    if (state.products.some(p => p.x === x && p.y === y)) return false;
+    const idx = state.obstacles.findIndex(o => o.x === x && o.y === y);
+    if (idx >= 0) state.obstacles.splice(idx, 1);
+    else state.obstacles.push({ x, y });
+    notify('obstacles:changed', { obstacles: state.obstacles });
+    return true;
+  }
+
+  function clearObstacles() {
+    state.obstacles = [];
+    notify('obstacles:changed', { obstacles: state.obstacles });
+  }
+
+  function setSortingStation(x, y) {
+    if (state.obstacles.some(o => o.x === x && o.y === y)) return false;
+    if (state.products.some(p => p.x === x && p.y === y)) return false;
+    state.sortingStation = { x, y };
+    notify('sortingStation:changed', { sortingStation: state.sortingStation });
+    return true;
+  }
+
+  function setPickers(n) {
+    state.pickers = Math.max(1, Math.min(4, n));
+    state.multiPickerResult = null;
+    notify('pickers:changed', { pickers: state.pickers });
+  }
+
+  function setMultiPickerResult(res) {
+    state.multiPickerResult = res;
+    notify('multiPicker:changed', { result: res });
+  }
+
+  function setEditMode(mode) {
+    state.editMode = mode;
+    notify('editMode:changed', { mode });
+  }
+
+  function isBlocked(x, y) {
+    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return true;
+    if (state.obstacles.some(o => o.x === x && o.y === y)) return true;
+    return false;
   }
 
   return {
@@ -269,12 +338,20 @@ const Store = (function () {
     setWaveResult,
     resetAll,
     pickRandom,
+    toggleObstacle,
+    clearObstacles,
+    setSortingStation,
+    setPickers,
+    setMultiPickerResult,
+    setEditMode,
+    isBlocked,
 
     get GRID_SIZE() { return GRID_SIZE; },
     get TOTAL_PRODUCTS() { return TOTAL_PRODUCTS; },
     get START_POINT() { return { ...START_POINT }; },
     get WALK_SPEED() { return WALK_SPEED; },
     get SINGLE_PICK_TIME() { return SINGLE_PICK_TIME; },
+    get SINGLE_SORT_TIME() { return SINGLE_SORT_TIME; },
 
     getState: () => state,
   };

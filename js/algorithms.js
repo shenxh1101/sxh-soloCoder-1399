@@ -6,6 +6,59 @@ const PickingAlgorithm = (function () {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
   }
 
+  function shortestPath(from, to) {
+    const sx = from.x, sy = from.y;
+    const tx = to.x, ty = to.y;
+    if (sx === tx && sy === ty) {
+      return { distance: 0, path: [{ x: sx, y: sy }] };
+    }
+
+    const GRID = Store.GRID_SIZE;
+    const visited = new Array(GRID).fill(null).map(() => new Array(GRID).fill(false));
+    const parent = new Array(GRID).fill(null).map(() => new Array(GRID).fill(null));
+    const queue = [[sx, sy]];
+    visited[sy][sx] = true;
+
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let found = false;
+
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift();
+      if (cx === tx && cy === ty) { found = true; break; }
+      for (const [dx, dy] of dirs) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) continue;
+        if (visited[ny][nx]) continue;
+        const isTarget = (nx === tx && ny === ty);
+        const isSource = (nx === sx && ny === sy);
+        if (!isTarget && !isSource && Store.isBlocked(nx, ny)) continue;
+        visited[ny][nx] = true;
+        parent[ny][nx] = [cx, cy];
+        queue.push([nx, ny]);
+      }
+    }
+
+    if (!found) {
+      return { distance: manhattan(from, to), path: [{ x: sx, y: sy }, { x: tx, y: ty }], fallback: true };
+    }
+
+    const path = [];
+    let cx = tx, cy = ty;
+    while (cx !== sx || cy !== sy) {
+      path.push({ x: cx, y: cy });
+      const p = parent[cy][cx];
+      if (!p) break;
+      cx = p[0]; cy = p[1];
+    }
+    path.push({ x: sx, y: sy });
+    path.reverse();
+    return { distance: path.length - 1, path };
+  }
+
+  function gridDistance(a, b) {
+    return shortestPath(a, b).distance;
+  }
+
   function buildNodes(productIds) {
     const nodes = [
       { id: '__START__', x: Store.START_POINT.x, y: Store.START_POINT.y, isStart: true }
@@ -27,7 +80,7 @@ const PickingAlgorithm = (function () {
       let bestDist = Infinity;
       for (const n of nodes) {
         if (visited.has(n.id)) continue;
-        const d = manhattan(current, n);
+        const d = gridDistance(current, n);
         if (d < bestDist) {
           bestDist = d;
           best = n;
@@ -62,7 +115,7 @@ const PickingAlgorithm = (function () {
       inMST[u] = true;
       for (let v = 0; v < n; v++) {
         if (inMST[v]) continue;
-        const d = manhattan(nodes[u], nodes[v]);
+        const d = gridDistance(nodes[u], nodes[v]);
         if (d < dist[v]) {
           dist[v] = d;
           parent[v] = u;
@@ -118,7 +171,7 @@ const PickingAlgorithm = (function () {
     nodes.forEach(n => { idMap[n.id] = n; });
     let total = 0;
     for (let i = 1; i < order.length; i++) {
-      total += manhattan(idMap[order[i - 1]], idMap[order[i]]);
+      total += gridDistance(idMap[order[i - 1]], idMap[order[i]]);
     }
     return total;
   }
@@ -164,13 +217,16 @@ const PickingAlgorithm = (function () {
     });
 
     const steps = [];
+    const pathSegments = [];
     for (let i = 1; i < nodeOrder.length - 1; i++) {
       const fromId = nodeOrder[i - 1];
       const toId = nodeOrder[i];
       const from = nodeMap[fromId];
       const to = nodeMap[toId];
       const prod = Store.getProductById(toId);
-      const dist = manhattan(from, to);
+      const sp = shortestPath(from, to);
+      const dist = sp.distance;
+      pathSegments.push(sp.path);
       steps.push({
         stepIndex: i,
         productId: toId,
@@ -179,9 +235,26 @@ const PickingAlgorithm = (function () {
         distance: dist,
         travelTime: dist / Store.WALK_SPEED,
         pickTime: prod ? prod.pickTime : Store.SINGLE_PICK_TIME,
+        gridPath: sp.path,
       });
     }
-    return Efficiency.evaluatePath(steps, algorithm);
+
+    let returnDistance = 0;
+    let returnPath = [];
+    if (nodeOrder.length >= 2) {
+      const lastId = nodeOrder[nodeOrder.length - 2];
+      const last = nodeMap[lastId];
+      if (last) {
+        const rsp = shortestPath(last, Store.START_POINT);
+        returnDistance = rsp.distance;
+        returnPath = rsp.path;
+      }
+    }
+
+    const result = Efficiency.evaluatePath(steps, algorithm, { returnDistance });
+    result.gridPathSegments = pathSegments;
+    result.returnPath = returnPath;
+    return result;
   }
 
   function solve(productIds, algorithm = 'NN') {
@@ -210,5 +283,7 @@ const PickingAlgorithm = (function () {
     solve,
     solveFromCustomOrder,
     manhattan,
+    shortestPath,
+    gridDistance,
   };
 })();

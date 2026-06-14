@@ -39,8 +39,14 @@ const Slotting = (function () {
   }
 
   function optimizeByHotness() {
-    const products = Store.getState().products;
-    const hotCount = Math.ceil(products.length * Store.getState().hotRatio);
+    const st = Store.getState();
+    const products = st.products;
+    const hotCount = Math.ceil(products.length * st.hotRatio);
+
+    const hotZonesArr = Object.entries(st.hotZones || { A: true, B: false, C: false })
+      .filter(([_, v]) => v)
+      .map(([k]) => k);
+    if (hotZonesArr.length === 0) hotZonesArr.push('A');
 
     const sortedByHot = [...products].sort((a, b) => b.hotLevel - a.hotLevel);
     const hotIds = new Set(sortedByHot.slice(0, hotCount).map(p => p.id));
@@ -50,25 +56,40 @@ const Slotting = (function () {
     const freeB = [...getFreeCellsInZone('B', occupied)].sort((a, b) => distanceToStart(a) - distanceToStart(b));
     const freeC = [...getFreeCellsInZone('C', occupied)].sort((a, b) => distanceToStart(a) - distanceToStart(b));
 
+    function getFreePool(zone) {
+      if (zone === 'A') return freeA;
+      if (zone === 'B') return freeB;
+      return freeC;
+    }
+
     const swaps = [];
 
     products.forEach(p => {
       const isHot = hotIds.has(p.id);
-      const shouldZone = isHot ? 'A' : (p.hotLevel >= 3 ? 'B' : 'C');
+      let shouldZone;
+      if (isHot) {
+        shouldZone = hotZonesArr[0] || 'A';
+      } else {
+        shouldZone = p.hotLevel >= 3 ? 'B' : 'C';
+        if (hotZonesArr.includes(shouldZone)) {
+          shouldZone = hotZonesArr.every(z => z === shouldZone)
+            ? (hotZonesArr.includes('A') ? 'B' : (shouldZone === 'B' ? 'C' : 'B'))
+            : shouldZone;
+        }
+      }
 
       if (p.zone === shouldZone) return;
 
-      let targetPool;
-      if (shouldZone === 'A') targetPool = freeA;
-      else if (shouldZone === 'B') targetPool = freeB;
-      else targetPool = freeC;
-
+      let targetPool = getFreePool(shouldZone);
       if (targetPool.length === 0) {
-        let altPool;
-        if (shouldZone === 'A') altPool = freeB.length ? freeB : freeC;
-        else if (shouldZone === 'B') altPool = freeA.length ? freeA : freeC;
-        else altPool = freeB.length ? freeB : freeA;
-        targetPool = altPool;
+        if (isHot) {
+          for (let i = 1; i < hotZonesArr.length && targetPool.length === 0; i++) {
+            targetPool = getFreePool(hotZonesArr[i]);
+          }
+        }
+        if (targetPool.length === 0) {
+          targetPool = freeA.length ? freeA : (freeB.length ? freeB : freeC);
+        }
       }
       if (targetPool.length === 0) return;
 

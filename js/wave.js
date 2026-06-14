@@ -34,6 +34,19 @@ const WavePicking = (function () {
     });
 
     const mergedPath = PickingAlgorithm.solve(mergedItems, algorithm);
+    const pickTimeSec = mergedPath.totalTimeSec;
+
+    const sortItemsPerOrder = {};
+    let totalSortItems = 0;
+    orderIds.forEach(oid => {
+      const order = orders[oid];
+      if (!order) return;
+      sortItemsPerOrder[oid] = order.items.filter(pid => !!Store.getProductById(pid)).length;
+      totalSortItems += sortItemsPerOrder[oid];
+    });
+    const sortTimeSec = totalSortItems * Store.SINGLE_SORT_TIME;
+
+    const totalWaveTimeSec = pickTimeSec + sortTimeSec;
     const waveId = `W${Date.now().toString().slice(-5)}`;
 
     let distanceSaved = 0;
@@ -42,11 +55,7 @@ const WavePicking = (function () {
       distanceSaved = (1 - mergedPath.totalDistance / totalSeparateDistance) * 100;
     }
     if (totalSeparateTime > 0) {
-      const waveTotalItems = orderIds.reduce((sum, oid) => {
-        const o = orders[oid];
-        return sum + (o ? o.items.filter(pid => !!Store.getProductById(pid)).length : 0);
-      }, 0);
-      const waveThroughput = mergedPath.totalTimeSec > 0 ? waveTotalItems / (mergedPath.totalTimeSec / 3600) : 0;
+      const waveThroughput = totalWaveTimeSec > 0 ? totalItems / (totalWaveTimeSec / 3600) : 0;
       const separateThroughput = totalSeparateTime > 0 ? totalItems / (totalSeparateTime / 3600) : 0;
       if (separateThroughput > 0) {
         efficiencyGain = (waveThroughput - separateThroughput) / separateThroughput * 100;
@@ -64,6 +73,14 @@ const WavePicking = (function () {
       separatePaths,
       totalSeparateDistance,
       totalSeparateTime,
+      pickTimeSec,
+      pickTimeMin: Math.round(pickTimeSec / 60 * 10) / 10,
+      sortItemsPerOrder,
+      totalSortItems,
+      sortTimeSec,
+      sortTimeMin: Math.round(sortTimeSec / 60 * 10) / 10,
+      totalWaveTimeSec,
+      totalWaveTimeMin: Math.round(totalWaveTimeSec / 60 * 10) / 10,
       distanceSaved: Math.round(distanceSaved * 10) / 10,
       efficiencyGain: Math.round(efficiencyGain * 10) / 10,
       algorithm,
@@ -80,7 +97,7 @@ const WavePicking = (function () {
     ];
     const times = [
       ...result.separatePaths.map(sp => Math.round(sp.path.totalTimeMin * 10) / 10),
-      Math.round(result.mergedPath.totalTimeMin * 10) / 10,
+      Math.round(result.totalWaveTimeMin * 10) / 10,
     ];
     return { labels, distances, times };
   }

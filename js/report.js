@@ -13,14 +13,16 @@ const Report = (function () {
       : '自定义顺序';
 
     const steps = pathResult.steps || [];
+    const returnDistance = pathResult.returnDistance || 0;
+    const returnTravelTime = pathResult.returnTravelTime || 0;
 
     let rowsHtml = '';
     let sumDist = 0, sumTravel = 0, sumPick = 0;
     steps.forEach((s, idx) => {
       const p = Store.getProductById(s.productId);
-      sumDist += s.distance;
-      sumTravel += s.travelTime;
-      sumPick += s.pickTime;
+      sumDist += s.distance || 0;
+      sumTravel += s.travelTime || 0;
+      sumPick += s.pickTime || 0;
       rowsHtml += `
         <tr>
           <td class="num">${idx + 1}</td>
@@ -36,6 +38,20 @@ const Report = (function () {
         </tr>
       `;
     });
+
+    if (returnDistance > 0) {
+      rowsHtml += `
+        <tr style="background:rgba(255,107,53,0.08);">
+          <td class="num" style="color:var(--accent-orange);font-weight:700;">↩</td>
+          <td colspan="4" style="color:var(--accent-orange);font-weight:600;">返回起点（分拣台/出入口）</td>
+          <td>-</td>
+          <td class="num" style="color:var(--accent-orange);">${returnDistance} m</td>
+          <td class="num" style="color:var(--accent-orange);">${Efficiency.formatTime(returnTravelTime)}</td>
+          <td class="num">-</td>
+          <td class="num" style="color:var(--accent-orange);">${Efficiency.formatTime(returnTravelTime)}</td>
+        </tr>
+      `;
+    }
 
     return `
       <div class="report-header" style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid var(--border-strong);">
@@ -174,6 +190,17 @@ const Report = (function () {
       `;
     });
 
+    let sortRows = '';
+    Object.entries(result.sortItemsPerOrder || {}).forEach(([oid, count]) => {
+      sortRows += `
+        <tr>
+          <td>${oid}</td>
+          <td class="num">${count}</td>
+          <td class="num">${count * Store.SINGLE_SORT_TIME} 秒</td>
+        </tr>
+      `;
+    });
+
     return `
       <div class="report-header" style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid var(--border-strong);">
         <div>
@@ -210,6 +237,49 @@ const Report = (function () {
         </div>
       </div>
 
+      <h4><i class="fas fa-boxes-stacked"></i> 作业阶段拆分</h4>
+      <div class="report-summary-grid">
+        <div class="report-summary-item">
+          <div class="report-summary-label">① 拣货阶段</div>
+          <div class="report-summary-value" style="color:var(--accent-cyan);">${result.pickTimeMin}</div>
+          <div class="report-summary-unit">分钟（行走+拣取）</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">② 分拣阶段</div>
+          <div class="report-summary-value" style="color:var(--accent-orange);">${result.sortTimeMin}</div>
+          <div class="report-summary-unit">分钟（${result.totalSortItems} 件分拣）</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">波次总耗时</div>
+          <div class="report-summary-value">${result.totalWaveTimeMin}</div>
+          <div class="report-summary-unit">分钟</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">分拣单件耗时</div>
+          <div class="report-summary-value">${Store.SINGLE_SORT_TIME}</div>
+          <div class="report-summary-unit">秒/件</div>
+        </div>
+      </div>
+
+      <h4><i class="fas fa-list"></i> 分拣明细</h4>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th>订单号</th>
+            <th>分拣件数</th>
+            <th>分拣耗时</th>
+          </tr>
+        </thead>
+        <tbody>${sortRows || '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted);">暂无</td></tr>'}</tbody>
+        <tfoot>
+          <tr>
+            <td>合计</td>
+            <td class="num">${result.totalSortItems}</td>
+            <td class="num">${Efficiency.formatTime(result.sortTimeSec)}</td>
+          </tr>
+        </tfoot>
+      </table>
+
       <h4><i class="fas fa-list"></i> 单订单汇总</h4>
       <table class="detail-table">
         <thead>
@@ -236,7 +306,7 @@ const Report = (function () {
             <td>波次合并模式</td>
             <td class="num">${result.totalItems} (去重后${result.mergedItemCount})</td>
             <td class="num">${result.mergedPath.totalDistance} m</td>
-            <td class="num">${Math.round(result.mergedPath.totalTimeMin * 10) / 10} 分钟</td>
+            <td class="num">${result.totalWaveTimeMin} 分钟</td>
             <td class="num">${result.mergedPath.throughput}</td>
           </tr>
         </tfoot>
@@ -244,9 +314,78 @@ const Report = (function () {
     `;
   }
 
+  function buildMultiPickerReportHtml(mp) {
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    let rows = '';
+    mp.pickers.forEach(pk => {
+      rows += `
+        <tr>
+          <td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${pk.pickerColor.stroke};margin-right:6px;"></span>${pk.pickerName}</td>
+          <td class="num">${pk.itemCount}</td>
+          <td class="num">${pk.path.totalDistance} m</td>
+          <td class="num">${Math.round(pk.path.totalTimeMin * 10) / 10} 分钟</td>
+          <td class="num">${pk.path.throughput}</td>
+        </tr>
+      `;
+    });
+
+    return `
+      <div class="report-header" style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid var(--border-strong);">
+        <div>
+          <h3 style="font-family:var(--font-mono);font-size:22px;color:#c77dff;">多人协同拣货报告</h3>
+          <p style="color:var(--text-muted);font-size:12px;margin-top:4px;">拣货员数量: <strong style="color:var(--text-primary);">${mp.pickerCount} 人</strong> · 总件数: ${mp.totalItems}</p>
+        </div>
+        <div style="text-align:right;">
+          <div style="color:var(--text-muted);font-size:11px;">生成时间</div>
+          <div style="font-family:var(--font-mono);font-size:14px;color:var(--text-primary);">${dateStr}</div>
+        </div>
+      </div>
+
+      <h4><i class="fas fa-users"></i> 协同效率对比</h4>
+      <div class="report-summary-grid">
+        <div class="report-summary-item">
+          <div class="report-summary-label">单人完成时间</div>
+          <div class="report-summary-value" style="color:var(--accent-orange);">${Math.round(mp.singlePicker.totalTimeMin * 10) / 10}</div>
+          <div class="report-summary-unit">分钟</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">${mp.pickerCount}人完成时间</div>
+          <div class="report-summary-value" style="color:#52b788;">${mp.overallTimeMin}</div>
+          <div class="report-summary-unit">分钟</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">时间节省</div>
+          <div class="report-summary-value" style="color:#52b788;">${mp.savedTimePct}%</div>
+          <div class="report-summary-unit">相对单人</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">整体吞吐</div>
+          <div class="report-summary-value">${mp.overallThroughput}</div>
+          <div class="report-summary-unit">件/小时</div>
+        </div>
+      </div>
+
+      <h4><i class="fas fa-chart-bar"></i> 各拣货员任务分配</h4>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th>拣货员</th>
+            <th>任务件数</th>
+            <th>行走距离</th>
+            <th>完成时间</th>
+            <th>个人效率</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
   function exportPathCsv(pathResult, opts = {}) {
     const orderId = opts.orderId || 'CUSTOM';
-    const header = ['Step', 'ProductID', 'SKU', 'ProductName', 'From_X', 'From_Y', 'To_X', 'To_Y', 'Zone', 'Distance_m', 'TravelTime_s', 'PickTime_s'];
+    const header = ['步骤', '商品ID', 'SKU编码', '商品名称', '起点X', '起点Y', '终点X', '终点Y', '区域', '距离(米)', '行走时间(秒)', '拣货时间(秒)'];
     const lines = [header.join(',')];
     (pathResult.steps || []).forEach((s, i) => {
       const p = Store.getProductById(s.productId);
@@ -263,6 +402,24 @@ const Report = (function () {
         s.pickTime,
       ].join(','));
     });
+
+    const returnDistance = pathResult.returnDistance || 0;
+    const returnTravelTime = pathResult.returnTravelTime || 0;
+    if (returnDistance > 0) {
+      const last = (pathResult.steps && pathResult.steps.length > 0) ? pathResult.steps[pathResult.steps.length - 1].to : Store.START_POINT;
+      lines.push([
+        '返回起点',
+        '-',
+        '-',
+        '"返回分拣台/出入口"',
+        last.x, last.y,
+        Store.START_POINT.x, Store.START_POINT.y,
+        '-',
+        returnDistance,
+        Math.round(returnTravelTime * 100) / 100,
+        0,
+      ].join(','));
+    }
 
     lines.push('');
     lines.push(`# Order ID,${orderId}`);
@@ -293,6 +450,7 @@ const Report = (function () {
     buildReportHtml,
     buildMiniReport,
     buildWaveReportHtml,
+    buildMultiPickerReportHtml,
     exportPathCsv,
     downloadFile,
   };

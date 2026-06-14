@@ -6,16 +6,21 @@ const Efficiency = (function () {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
   }
 
-  function evaluatePath(steps, algorithm = 'CUSTOM') {
+  function evaluatePath(steps, algorithm = 'CUSTOM', extra = {}) {
     let totalDistance = 0;
     let totalTravelTime = 0;
     let totalPickTime = 0;
 
     steps.forEach(step => {
-      totalDistance += step.distance;
-      totalTravelTime += step.travelTime;
-      totalPickTime += step.pickTime;
+      totalDistance += step.distance || 0;
+      totalTravelTime += step.travelTime || 0;
+      totalPickTime += step.pickTime || 0;
     });
+
+    const returnDistance = extra.returnDistance || 0;
+    const returnTravelTime = extra.returnTravelTime || (returnDistance / (Store ? Store.WALK_SPEED : 1));
+    totalDistance += returnDistance;
+    totalTravelTime += returnTravelTime;
 
     const itemCount = steps.length;
     const totalTimeSec = totalTravelTime + totalPickTime;
@@ -29,6 +34,8 @@ const Efficiency = (function () {
       totalDistance,
       totalTravelTime,
       totalPickTime,
+      returnDistance,
+      returnTravelTime,
       totalTimeSec,
       totalTimeMin: totalTimeSec / 60,
       throughput: Math.round(throughput * 10) / 10,

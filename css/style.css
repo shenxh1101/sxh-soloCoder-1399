@@ -674,8 +674,10 @@ body::before {
 }
 .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
 .dot-start { background: var(--accent-orange); box-shadow: 0 0 8px var(--accent-orange); }
+.dot-sorting { background: #52b788; box-shadow: 0 0 8px #52b788; }
 .dot-product { background: var(--accent-cyan); }
 .dot-hot { background: #ffd700; box-shadow: 0 0 8px #ffd700;}
+.dot-obstacle { background: #d00000; opacity: 0.75; }
 .dot-zone-a { background: rgba(45,106,79,0.5); border: 1px solid var(--zone-a); }
 .dot-zone-b { background: rgba(29,53,87,0.5); border: 1px solid #4a6fa5; }
 .dot-zone-c { background: rgba(61,58,80,0.5); border: 1px solid #6b6586; }
@@ -1071,6 +1073,103 @@ svg .step-bubble {
   .main-layout { padding: 10px; gap: 10px; }
   .metrics-grid { grid-template-columns: 1fr 1fr; }
   .report-summary-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ============= Picker & Edit Mode Buttons ============= */
+.picker-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.picker-btn {
+  background: rgba(15, 23, 36, 0.55);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 6px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-mono);
+}
+.picker-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); background: rgba(0,180,216,0.08); }
+.picker-btn.active {
+  background: linear-gradient(135deg, var(--accent-cyan), #0077b6);
+  color: #fff;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 12px rgba(0,180,216,0.4);
+}
+#editModeRow { grid-template-columns: repeat(3, 1fr); }
+
+/* ============= Obstacle / Sorting ============= */
+.cell-rect { transition: fill 0.2s, stroke 0.2s; cursor: pointer; }
+.cell-rect.edit-mode:hover {
+  fill: rgba(0,180,216,0.15) !important;
+  stroke: #00b4d8 !important;
+  stroke-width: 2px !important;
+}
+.cell-rect.obstacle-cell {
+  fill: rgba(208,0,0,0.55) !important;
+  stroke: #ff4d4d !important;
+}
+.cell-rect.sorting-cell {
+  fill: rgba(82,183,136,0.22) !important;
+  stroke: #52b788 !important;
+}
+
+/* ============= Multi-Picker Panel ============= */
+.multi-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px;
+  background: rgba(15,23,36,0.45);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.multi-summary-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ms-label { font-size: 11px; color: var(--text-muted); }
+.ms-val { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--accent-orange); }
+.ms-val.good { color: #52b788; }
+.ms-val.bad { color: #ff6b6b; }
+
+.picker-list { display: flex; flex-direction: column; gap: 8px; }
+.picker-card {
+  background: rgba(15,23,36,0.55);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.picker-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-left: 8px; margin-bottom: 6px;
+}
+.picker-name { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.picker-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.picker-count { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+.picker-metrics {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  padding-top: 6px; border-top: 1px dashed var(--border);
+}
+.picker-metrics > div {
+  display: flex; flex-direction: column; align-items: center;
+  font-size: 10px; color: var(--text-muted);
+}
+.picker-metrics span { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent-cyan); }
+
+.btn-block { width: 100%; display: block; }
+.mt-3 { margin-top: 12px; }
+.mt-2 { margin-top: 8px; }
+
+/* ============= SVG path/step bubble (color overrides via CSS vars from inline style) ============= */
+.step-bubble {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 @media print {
