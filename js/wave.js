@@ -102,9 +102,12 @@ const WavePicking = (function () {
     return { labels, distances, times };
   }
 
-  function runWaveMulti(orderIds, pickerCount, algorithm) {
+  function runWaveMulti(orderIds, pickerCount, algorithm, opts = {}) {
     const orders = Store.getState().orders;
-    const k = Math.max(1, Math.min(4, parseInt(pickerCount, 10)));
+    const allCfgs = opts.pickerConfigs || Store.getPickerConfigs();
+    const activeCfgs = allCfgs.filter(c => c.active);
+    const k = Math.max(1, Math.min(Math.min(4, parseInt(pickerCount, 10)), activeCfgs.length));
+
     const separatePaths = [];
     let totalSeparateTime = 0;
     let totalSeparateDistance = 0;
@@ -136,12 +139,12 @@ const WavePicking = (function () {
 
     const singleMergedPath = PickingAlgorithm.solve(mergedItems, algorithm);
     let mp = null;
-    if (k >= 2) {
-      mp = MultiPicker.splitForPickers(mergedItems, k, algorithm);
+    if (k >= 1) {
+      mp = MultiPicker.splitForPickers(mergedItems, k, algorithm, { pickerConfigs: allCfgs });
     }
 
     const pickStageSecSingle = singleMergedPath.totalTimeSec;
-    const pickStageSecMulti = mp ? mp.overallTimeMin * 60 : pickStageSecSingle;
+    const pickStageSecMulti = mp ? mp.overallTimeSec : pickStageSecSingle;
 
     const sortItemsPerOrder = {};
     let totalSortItems = 0;
@@ -157,6 +160,30 @@ const WavePicking = (function () {
     const waveId = `WM${Date.now().toString().slice(-5)}`;
     const overallSingleMin = Math.round((pickStageSecSingle + sortTimeSec) / 60 * 100) / 100;
     const overallMultiMin = Math.round((pickStageSecMulti + sortTimeSec) / 60 * 100) / 100;
+    const overallSingleSec = pickStageSecSingle + sortTimeSec;
+    const overallMultiSec = pickStageSecMulti + sortTimeSec;
+
+    const bottleneck = mp && mp.bottleneck ? {
+      pickerName: mp.bottleneck.pickerName,
+      pickerIndex: mp.bottleneck.pickerIndex,
+      adjustedTotalMin: mp.bottleneck.adjustedTotalMin,
+      itemCount: mp.bottleneck.itemCount,
+      totalDistance: mp.bottleneck.path.totalDistance,
+    } : null;
+
+    const sensitivity = [];
+    if (mp && mp.sensitivity && mp.sensitivity.length > 0) {
+      mp.sensitivity.forEach(s => {
+        const newPickSec = s.estimatedMakespanSec;
+        const newOverallMin = Math.round((newPickSec + sortTimeSec) / 60 * 100) / 100;
+        sensitivity.push({
+          ...s,
+          estimatedOverallMin: newOverallMin,
+          deltaOverallMin: Math.round((newOverallMin - overallMultiMin) * 100) / 100,
+          sortTimeMin,
+        });
+      });
+    }
 
     const waveResult = {
       waveId,
@@ -178,14 +205,19 @@ const WavePicking = (function () {
       sortTimeMin,
       pickStageSecSingle,
       pickStageMinSingle: Math.round(pickStageSecSingle / 60 * 100) / 100,
-      pickStageSecMulti: pickStageSecMulti,
+      pickStageSecMulti,
       pickStageMinMulti: Math.round(pickStageSecMulti / 60 * 100) / 100,
+      overallSingleSec,
       overallSingleMin,
+      overallMultiSec,
       overallMultiMin,
       savedTimePct: overallSingleMin > 0
         ? Math.round((overallSingleMin - overallMultiMin) / overallSingleMin * 1000) / 10
         : 0,
       totalSeparateMin: Math.round(totalSeparateTime / 60 * 100) / 100,
+      bottleneck,
+      sensitivity,
+      pickerCfgs: mp ? mp.pickerCfgs : [],
     };
     return waveResult;
   }

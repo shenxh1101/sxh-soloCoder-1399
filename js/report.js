@@ -346,23 +346,55 @@ const Report = (function () {
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     let rows = '';
-    mp.pickers.forEach(pk => {
+    (mp.pickers || []).forEach(pk => {
+      const isBn = mp.bottleneck && mp.bottleneck.pickerName === pk.pickerName;
       rows += `
-        <tr>
-          <td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${pk.pickerColor.stroke};margin-right:6px;"></span>${pk.pickerName}</td>
+        <tr style="${isBn ? 'background:rgba(230,57,70,0.06);' : ''}">
+          <td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${pk.pickerColor.stroke};margin-right:6px;"></span>${pk.pickerName}${isBn ? ' <span style="color:#e63946;font-size:11px;">⚠️瓶颈</span>' : ''}</td>
+          <td class="num">${pk.walkSpeed}x</td>
+          <td class="num">${pk.pickProficiency}x</td>
           <td class="num">${pk.itemCount}</td>
           <td class="num">${pk.path.totalDistance} m</td>
-          <td class="num">${Math.round(pk.path.totalTimeMin * 10) / 10} 分钟</td>
-          <td class="num">${pk.path.throughput}</td>
+          <td class="num">${pk.adjustedTotalMin != null ? pk.adjustedTotalMin : Math.round(pk.path.totalTimeMin * 10) / 10} 分钟</td>
+          <td class="num">${pk.throughput != null ? pk.throughput : pk.path.throughput}</td>
         </tr>
       `;
     });
+
+    let sensHtml = '';
+    if (mp.sensitivity && mp.sensitivity.length > 0) {
+      sensHtml = `
+        <h4><i class="fas fa-user-slash"></i> 少人灵敏度分析</h4>
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th>若缺少</th>
+              <th>剩余人数</th>
+              <th>预估拣货耗时</th>
+              <th>比当前多</th>
+              <th>增幅</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${mp.sensitivity.map(s => `
+              <tr>
+                <td>${s.removedPicker}</td>
+                <td class="num">${s.remainingCount} 人</td>
+                <td class="num">${Math.round(s.estimatedMakespanSec / 60 * 100) / 100} 分钟</td>
+                <td class="num" style="color:#e63946;">+${Math.round(s.deltaSec / 60 * 100) / 100} 分钟</td>
+                <td class="num" style="color:#e63946;">+${s.deltaPct}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
 
     return `
       <div class="report-header" style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid var(--border-strong);">
         <div>
           <h3 style="font-family:var(--font-mono);font-size:22px;color:#c77dff;">多人协同拣货报告</h3>
-          <p style="color:var(--text-muted);font-size:12px;margin-top:4px;">拣货员数量: <strong style="color:var(--text-primary);">${mp.pickerCount} 人</strong> · 总件数: ${mp.totalItems}</p>
+          <p style="color:var(--text-muted);font-size:12px;margin-top:4px;">拣货员数量: <strong style="color:var(--text-primary);">${mp.pickerCount} 人</strong> · 总件数: ${mp.totalItems}${mp.bottleneck ? ` · 瓶颈: <span style="color:#e63946;">${mp.bottleneck.pickerName}</span>` : ''}</p>
         </div>
         <div style="text-align:right;">
           <div style="color:var(--text-muted);font-size:11px;">生成时间</div>
@@ -394,11 +426,13 @@ const Report = (function () {
         </div>
       </div>
 
-      <h4><i class="fas fa-chart-bar"></i> 各拣货员任务分配</h4>
+      <h4><i class="fas fa-chart-bar"></i> 各拣货员任务分配（含能力参数）</h4>
       <table class="detail-table">
         <thead>
           <tr>
             <th>拣货员</th>
+            <th>步行速度</th>
+            <th>熟练度</th>
             <th>任务件数</th>
             <th>行走距离</th>
             <th>完成时间</th>
@@ -407,6 +441,8 @@ const Report = (function () {
         </thead>
         <tbody>${rows}</tbody>
       </table>
+
+      ${sensHtml}
     `;
   }
 
@@ -434,7 +470,7 @@ const Report = (function () {
     const returnTravelTime = pathResult.returnTravelTime || 0;
     const sortingStation = pathResult.endPoint || Store.getSortingStation();
     const b = pathResult.breakdown || {
-      stepDistance: 0, stepTravelTime: 0, stepPickTime: 0, totalTimeSec: 0,
+      stepDistance: 0, stepTravelTime: 0, stepPickTime: 0, returnDistance, returnTravelTime, totalTimeSec: 0,
     };
     if (returnDistance > 0) {
       const last = (pathResult.steps && pathResult.steps.length > 0) ? pathResult.steps[pathResult.steps.length - 1].to : Store.START_POINT;
@@ -455,8 +491,8 @@ const Report = (function () {
     lines.push('');
     lines.push(`=== 对账区 ===`);
     lines.push(`[步骤段] 距离合计(m),${b.stepDistance}, 行走时间合计(s),${b.stepTravelTime}, 拣货时间合计(s),${b.stepPickTime}`);
-    lines.push(`[回程段] 距离(m),${b.returnDistance}, 回程时间(s),${b.returnTravelTime}`);
-    lines.push(`[总合计] 总距离(m),${b.totalDistance}, 总时间(s),${b.totalTimeSec}, 总时间(min),${Math.round(b.totalTimeSec / 60 * 100) / 100}`);
+    lines.push(`[回程段] 距离(m),${b.returnDistance != null ? b.returnDistance : returnDistance}, 回程时间(s),${b.returnTravelTime != null ? b.returnTravelTime : returnTravelTime}`);
+    lines.push(`[总合计] 总距离(m),${b.totalDistance != null ? b.totalDistance : pathResult.totalDistance}, 总时间(s),${b.totalTimeSec != null ? b.totalTimeSec : pathResult.totalTimeSec}, 总时间(min),${Math.round((b.totalTimeSec != null ? b.totalTimeSec : pathResult.totalTimeSec) / 60 * 100) / 100}`);
     lines.push(`[起点] (${Store.START_POINT.x},${Store.START_POINT.y}), [分拣台] (${sortingStation.x},${sortingStation.y})`);
     lines.push(`=== 对账区结束 ===`);
     lines.push('');
@@ -475,23 +511,143 @@ const Report = (function () {
     return bom + lines.join('\n');
   }
 
+  function exportMultiPickerCsv(mp, opts = {}) {
+    const lines = [];
+    lines.push(`# 多人协同拣货 CSV 导出`);
+    lines.push(`# 拣货员数量,${mp.pickerCount}`);
+    lines.push(`# 总件数,${mp.totalItems}`);
+    lines.push(`# 总距离(m),${mp.totalDistance}`);
+    lines.push(`# 单人完成(min),${Math.round(mp.singlePicker.totalTimeMin * 100) / 100}`);
+    lines.push(`# ${mp.pickerCount}人完成(min),${mp.overallTimeMin}`);
+    lines.push(`# 时间节省%,${mp.savedTimePct}`);
+    lines.push(`# 整体吞吐(件/h),${mp.overallThroughput}`);
+    if (mp.bottleneck) {
+      lines.push(`# 瓶颈拣货员,${mp.bottleneck.pickerName}(${mp.bottleneck.adjustedTotalMin != null ? mp.bottleneck.adjustedTotalMin : Math.round(mp.bottleneck.path.totalTimeMin * 10) / 10}分钟)`);
+    }
+    lines.push('');
+    lines.push(['拣货员', '步行速度', '熟练度', '任务件数', '行走距离(m)', '标准耗时(min)', '调整后耗时(min)', '效率(件/h)', '分配商品ID'].join(','));
+    (mp.pickers || []).forEach(pk => {
+      lines.push([
+        pk.pickerName,
+        pk.walkSpeed != null ? pk.walkSpeed : 1,
+        pk.pickProficiency != null ? pk.pickProficiency : 1,
+        pk.itemCount,
+        pk.path.totalDistance,
+        Math.round(pk.path.totalTimeMin * 100) / 100,
+        pk.adjustedTotalMin != null ? pk.adjustedTotalMin : Math.round(pk.path.totalTimeMin * 100) / 100,
+        pk.throughput != null ? pk.throughput : pk.path.throughput,
+        `"${pk.itemIds.join('|')}"`,
+      ].join(','));
+    });
+
+    if (mp.sensitivity && mp.sensitivity.length > 0) {
+      lines.push('');
+      lines.push(`# === 少人灵敏度分析 ===`);
+      lines.push(['若缺少', '剩余人数', '预估耗时(min)', '增加(min)', '增幅%'].join(','));
+      mp.sensitivity.forEach(s => {
+        lines.push([
+          s.removedPicker,
+          s.remainingCount,
+          Math.round(s.estimatedMakespanSec / 60 * 100) / 100,
+          Math.round(s.deltaSec / 60 * 100) / 100,
+          s.deltaPct,
+        ].join(','));
+      });
+    }
+    lines.push('');
+    lines.push(`# Generated At,${new Date().toISOString()}`);
+
+    return '\uFEFF' + lines.join('\n');
+  }
+
+  function exportWaveMultiCsv(res, opts = {}) {
+    const lines = [];
+    lines.push(`# 波次多人协同 CSV 导出`);
+    lines.push(`# 波次ID,${res.waveId}`);
+    lines.push(`# 订单列表,${res.orderIds.join('|')}`);
+    lines.push(`# 算法,${res.algorithm}`);
+    lines.push(`# 拣货员数量,${res.pickerCount}`);
+    lines.push(`# 总件数(含重复),${res.totalItems}`);
+    lines.push(`# 去重后件数,${res.mergedItemCount}`);
+    lines.push(`# 去重节省,${res.duplicateSaved}`);
+    lines.push('');
+    lines.push(`# === 全流程耗时对比 ===`);
+    lines.push(['场景', '总距离(m)', '总耗时(min)', '拣货阶段(min)', '分拣阶段(min)'].join(','));
+    lines.push(['单订单累计', Math.round(res.totalSeparateDistance), res.totalSeparateMin, '-', res.sortTimeMin].join(','));
+    lines.push(['单人波次', res.singleMergedPath.totalDistance, res.overallSingleMin, res.pickStageMinSingle, res.sortTimeMin].join(','));
+    lines.push([`${res.pickerCount}人波次`, res.multiPicker ? Math.round(res.multiPicker.totalDistance) : res.singleMergedPath.totalDistance, res.overallMultiMin, res.pickStageMinMulti, res.sortTimeMin].join(','));
+    lines.push(`# 相对单人节省%,${res.savedTimePct}`);
+    if (res.bottleneck) {
+      lines.push(`# 瓶颈拣货员,${res.bottleneck.pickerName}(${res.bottleneck.adjustedTotalMin != null ? res.bottleneck.adjustedTotalMin : Math.round(res.bottleneck.totalDistance / 60)}分钟)`);
+    }
+    lines.push('');
+    lines.push(`# === 分拣阶段 ===`);
+    lines.push(`# 总分拣件数,${res.totalSortItems}`);
+    lines.push(`# 分拣耗时(min),${res.sortTimeMin}`);
+    lines.push(`# 单件分拣耗时(s),${Store.SINGLE_SORT_TIME}`);
+    lines.push('');
+
+    if (res.multiPicker && res.multiPicker.pickers) {
+      lines.push(`# === 拣货员分配明细 ===`);
+      lines.push(['拣货员', '步行速度', '熟练度', '件数', '距离(m)', '标准耗时(min)', '调整后(min)', '效率(件/h)'].join(','));
+      res.multiPicker.pickers.forEach(pk => {
+        lines.push([
+          pk.pickerName,
+          pk.walkSpeed != null ? pk.walkSpeed : 1,
+          pk.pickProficiency != null ? pk.pickProficiency : 1,
+          pk.itemCount,
+          pk.path.totalDistance,
+          Math.round(pk.path.totalTimeMin * 100) / 100,
+          pk.adjustedTotalMin != null ? pk.adjustedTotalMin : Math.round(pk.path.totalTimeMin * 100) / 100,
+          pk.throughput != null ? pk.throughput : pk.path.throughput,
+        ].join(','));
+      });
+    }
+
+    if (res.sensitivity && res.sensitivity.length > 0) {
+      lines.push('');
+      lines.push(`# === 少人灵敏度分析 ===`);
+      lines.push(['若缺少', '剩余人数', '预估整体耗时(min)', '增加(min)', '增幅%'].join(','));
+      res.sensitivity.forEach(s => {
+        lines.push([
+          s.removedPicker,
+          s.remainingCount,
+          s.estimatedOverallMin,
+          s.deltaOverallMin,
+          s.deltaPct,
+        ].join(','));
+      });
+    }
+
+    lines.push('');
+    lines.push(`# Generated At,${new Date().toISOString()}`);
+    return '\uFEFF' + lines.join('\n');
+  }
+
   function buildWaveMultiReportHtml(res) {
     const mp = res.multiPicker;
     let pickerRows = '';
     if (mp && mp.pickers && mp.pickers.length) {
-      pickerRows = mp.pickers.map((r, i) => `
-        <tr>
-          <td>${r.pickerName || `拣货员${i + 1}`}</td>
+      pickerRows = mp.pickers.map((r, i) => {
+        const isBn = res.bottleneck && res.bottleneck.pickerName === r.pickerName;
+        return `
+        <tr style="${isBn ? 'background:rgba(230,57,70,0.06);' : ''}">
+          <td>${r.pickerName || `拣货员${i + 1}`}${isBn ? ' <span style="color:#e63946;font-size:11px;">⚠️瓶颈</span>' : ''}</td>
+          <td class="num">${r.walkSpeed != null ? r.walkSpeed + 'x' : '1x'}</td>
+          <td class="num">${r.pickProficiency != null ? r.pickProficiency + 'x' : '1x'}</td>
           <td class="num">${r.itemIds.length} 件</td>
           <td class="num">${r.path.totalDistance} m</td>
-          <td class="num">${Math.round(r.path.totalTimeMin * 10) / 10} 分钟</td>
-          <td class="num">${r.path.throughput}</td>
+          <td class="num">${r.adjustedTotalMin != null ? r.adjustedTotalMin : Math.round(r.path.totalTimeMin * 10) / 10} 分钟</td>
+          <td class="num">${r.throughput != null ? r.throughput : r.path.throughput}</td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     } else {
       pickerRows = `
         <tr>
           <td>单人波次</td>
+          <td class="num">1x</td>
+          <td class="num">1x</td>
           <td class="num">${res.mergedItemCount} 件</td>
           <td class="num">${res.singleMergedPath.totalDistance} m</td>
           <td class="num">${Math.round(res.singleMergedPath.totalTimeMin * 10) / 10} 分钟</td>
@@ -499,11 +655,41 @@ const Report = (function () {
         </tr>
       `;
     }
+
+    let sensHtml = '';
+    if (res.sensitivity && res.sensitivity.length > 0) {
+      sensHtml = `
+        <h4><i class="fas fa-user-slash"></i> 少人灵敏度分析</h4>
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th>若缺少</th>
+              <th>剩余人数</th>
+              <th>预估整体耗时</th>
+              <th>比当前多</th>
+              <th>增幅</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${res.sensitivity.map(s => `
+              <tr>
+                <td>${s.removedPicker}</td>
+                <td class="num">${s.remainingCount} 人</td>
+                <td class="num">${s.estimatedOverallMin} 分钟</td>
+                <td class="num" style="color:#e63946;">+${s.deltaOverallMin} 分钟</td>
+                <td class="num" style="color:#e63946;">+${s.deltaPct}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
     return `
       <div style="margin-bottom:14px;padding:14px 16px;background:linear-gradient(90deg,rgba(82,183,136,0.12),rgba(0,180,216,0.10));border-left:4px solid #52b788;border-radius:0 10px 10px 0;">
         <div style="font-size:13px;color:var(--text-muted);font-family:var(--font-mono);">波次任务 · 多人协同</div>
         <div style="font-family:var(--font-mono);font-weight:700;font-size:17px;color:var(--text-primary);margin-top:4px;">
-          📦 波次 ${res.waveId} &nbsp;·&nbsp; ${res.orderIds.length} 个订单 &nbsp;·&nbsp; 拣货 ${res.pickerCount} 人 &nbsp;·&nbsp; 去重后 ${res.mergedItemCount} 件
+          📦 波次 ${res.waveId} &nbsp;·&nbsp; ${res.orderIds.length} 个订单 &nbsp;·&nbsp; 拣货 ${res.pickerCount} 人 &nbsp;·&nbsp; 去重后 ${res.mergedItemCount} 件${res.bottleneck ? ` &nbsp;·&nbsp; ⚠️瓶颈: <span style="color:#e63946;">${res.bottleneck.pickerName}</span>` : ''}
         </div>
       </div>
 
@@ -531,11 +717,13 @@ const Report = (function () {
         </div>
       </div>
 
-      <h4><i class="fas fa-users"></i> 各拣货员分配明细</h4>
+      <h4><i class="fas fa-users"></i> 各拣货员分配明细（含能力参数）</h4>
       <table class="detail-table">
         <thead>
           <tr>
             <th>拣货员</th>
+            <th>步行速度</th>
+            <th>熟练度</th>
             <th>任务件数</th>
             <th>行走距离</th>
             <th>完成时间</th>
@@ -563,6 +751,8 @@ const Report = (function () {
           <div class="report-summary-unit">件/小时</div>
         </div>
       </div>
+
+      ${sensHtml}
     `;
   }
 
@@ -624,6 +814,8 @@ const Report = (function () {
     buildWaveMultiReportHtml,
     buildAlgorithmComparisonReport,
     exportPathCsv,
+    exportMultiPickerCsv,
+    exportWaveMultiCsv,
     downloadFile,
   };
 })();

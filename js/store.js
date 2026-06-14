@@ -36,6 +36,12 @@ const Store = (function () {
     obstacles: [],
     sortingStation: { x: 0, y: 0 },
     pickers: 1,
+    pickerConfigs: [
+      { index: 0, name: '拣货员 A', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+      { index: 1, name: '拣货员 B', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+      { index: 2, name: '拣货员 C', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+      { index: 3, name: '拣货员 D', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+    ],
     multiPickerResult: null,
     editMode: null,
     listeners: [],
@@ -374,6 +380,43 @@ const Store = (function () {
     notify('editMode:changed', { mode });
   }
 
+  function getPickerConfigs() {
+    return state.pickerConfigs.map(c => ({ ...c }));
+  }
+
+  function getActivePickers() {
+    return state.pickerConfigs.filter(c => c.active).map(c => ({ ...c }));
+  }
+
+  function updatePickerConfig(index, field, value) {
+    if (index < 0 || index >= state.pickerConfigs.length) return false;
+    const cfg = state.pickerConfigs[index];
+    if (field === 'walkSpeed') {
+      cfg.walkSpeed = Math.max(0.3, Math.min(2.5, parseFloat(value) || 1.0));
+    } else if (field === 'pickProficiency') {
+      cfg.pickProficiency = Math.max(0.3, Math.min(2.5, parseFloat(value) || 1.0));
+    } else if (field === 'active') {
+      cfg.active = !!value;
+    } else if (field === 'name') {
+      cfg.name = String(value || cfg.name);
+    } else {
+      return false;
+    }
+    notify('pickerConfig:changed', { index, config: { ...cfg } });
+    return true;
+  }
+
+  function resetPickerConfigs() {
+    state.pickerConfigs = [
+      { index: 0, name: '拣货员 A', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+      { index: 1, name: '拣货员 B', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+      { index: 2, name: '拣货员 C', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+      { index: 3, name: '拣货员 D', walkSpeed: 1.0, pickProficiency: 1.0, active: true },
+    ];
+    notify('pickerConfig:changed', { index: -1, config: null });
+    return true;
+  }
+
   return {
     subscribe,
     generateProducts,
@@ -401,6 +444,10 @@ const Store = (function () {
     setMultiPickerResult,
     setEditMode,
     isBlocked,
+    getPickerConfigs,
+    getActivePickers,
+    updatePickerConfig,
+    resetPickerConfigs,
 
     get GRID_SIZE() { return GRID_SIZE; },
     get TOTAL_PRODUCTS() { return TOTAL_PRODUCTS; },
