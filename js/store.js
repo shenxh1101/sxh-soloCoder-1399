@@ -194,18 +194,30 @@ const Store = (function () {
       }
     }
 
+    const sortSta = state.sortingStation;
     let returnDistance = 0;
     let returnPath = [];
+    let returnTravelTime = 0;
     if (points.length > 1) {
       const last = points[points.length - 1];
-      const rsp = PickingAlgorithm.shortestPath(last, START_POINT);
+      const rsp = PickingAlgorithm.shortestPath(last, sortSta);
       returnDistance = rsp.distance;
       returnPath = rsp.path;
+      returnTravelTime = returnDistance / WALK_SPEED;
     }
 
-    const evalRes = Efficiency.evaluatePath(newSteps, state.algorithm, { returnDistance });
+    const evalRes = Efficiency.evaluatePath(newSteps, state.algorithm, {
+      returnDistance,
+      returnTravelTime,
+      _hint: {
+        startPoint: { ...START_POINT },
+        sortingStation: { ...sortSta },
+      },
+    });
     evalRes.gridPathSegments = newSteps.map(s => s.gridPath || []);
     evalRes.returnPath = returnPath;
+    evalRes.endPoint = { ...sortSta };
+    evalRes.startPoint = { ...START_POINT };
     state.pathResult = evalRes;
     notify('path:changed', { result: evalRes });
   }
@@ -274,15 +286,63 @@ const Store = (function () {
     notify('reset', {});
   }
 
-  function toggleObstacle(x, y) {
+  function toggleObstacle(x, y, opts = {}) {
     if ((x === state.sortingStation.x && y === state.sortingStation.y) ||
         (x === START_POINT.x && y === START_POINT.y)) return false;
     if (state.products.some(p => p.x === x && p.y === y)) return false;
     const idx = state.obstacles.findIndex(o => o.x === x && o.y === y);
-    if (idx >= 0) state.obstacles.splice(idx, 1);
-    else state.obstacles.push({ x, y });
+    if (idx >= 0) {
+      const oldType = state.obstacles[idx].type;
+      if (opts.cycle && oldType !== 'one_way') {
+        const next = oldType === 'obstacle' ? 'temp_closed' : 'one_way';
+        state.obstacles[idx] = { x, y, type: next, dir: opts.dir || 'right' };
+      } else if (opts.cycle && oldType === 'one_way') {
+        const dirCycle = ['right', 'down', 'left', 'up'];
+        const nextDir = dirCycle[(dirCycle.indexOf(state.obstacles[idx].dir) + 1) % 4];
+        if (opts.dir != null) {
+          state.obstacles[idx] = { x, y, type: 'one_way', dir: opts.dir };
+        } else if (nextDir === 'right') {
+          state.obstacles.splice(idx, 1);
+        } else {
+          state.obstacles[idx] = { x, y, type: 'one_way', dir: nextDir };
+        }
+      } else {
+        state.obstacles.splice(idx, 1);
+      }
+    } else {
+      const type = opts.type || 'obstacle';
+      const entry = { x, y, type };
+      if (type === 'one_way') entry.dir = opts.dir || 'right';
+      state.obstacles.push(entry);
+    }
     notify('obstacles:changed', { obstacles: state.obstacles });
     return true;
+  }
+
+  function getObstacleAt(x, y) {
+    return state.obstacles.find(o => o.x === x && o.y === y);
+  }
+
+  function isBlocked(x, y, fromDir) {
+    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return true;
+    const ob = state.obstacles.find(o => o.x === x && o.y === y);
+    if (!ob) return false;
+    if (ob.type === 'obstacle' || ob.type === 'temp_closed') return true;
+    if (ob.type === 'one_way') {
+      if (!fromDir) return true;
+      return fromDir !== ob.dir;
+    }
+    return true;
+  }
+
+  function canTraverseFromTo(fx, fy, tx, ty) {
+    const dx = tx - fx, dy = ty - fy;
+    let dir = null;
+    if (dx === 1) dir = 'right';
+    else if (dx === -1) dir = 'left';
+    else if (dy === 1) dir = 'down';
+    else if (dy === -1) dir = 'up';
+    return !isBlocked(tx, ty, dir);
   }
 
   function clearObstacles() {
@@ -314,12 +374,6 @@ const Store = (function () {
     notify('editMode:changed', { mode });
   }
 
-  function isBlocked(x, y) {
-    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return true;
-    if (state.obstacles.some(o => o.x === x && o.y === y)) return true;
-    return false;
-  }
-
   return {
     subscribe,
     generateProducts,
@@ -340,6 +394,8 @@ const Store = (function () {
     pickRandom,
     toggleObstacle,
     clearObstacles,
+    getObstacleAt,
+    canTraverseFromTo,
     setSortingStation,
     setPickers,
     setMultiPickerResult,
@@ -352,6 +408,7 @@ const Store = (function () {
     get WALK_SPEED() { return WALK_SPEED; },
     get SINGLE_PICK_TIME() { return SINGLE_PICK_TIME; },
     get SINGLE_SORT_TIME() { return SINGLE_SORT_TIME; },
+    getSortingStation() { return { ...state.sortingStation }; },
 
     getState: () => state,
   };

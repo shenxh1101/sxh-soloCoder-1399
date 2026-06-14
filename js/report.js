@@ -15,14 +15,21 @@ const Report = (function () {
     const steps = pathResult.steps || [];
     const returnDistance = pathResult.returnDistance || 0;
     const returnTravelTime = pathResult.returnTravelTime || 0;
+    const b = pathResult.breakdown || {
+      stepDistance: 0, stepTravelTime: 0, stepPickTime: 0,
+      returnDistance, returnTravelTime,
+      totalDistance: pathResult.totalDistance,
+      totalTravelTime: pathResult.totalTravelTime,
+      totalPickTime: pathResult.totalPickTime,
+      totalTimeSec: pathResult.totalTimeSec,
+      check: { distanceOK: true, travelTimeOK: true, timeSumOK: true },
+    };
+    const sortingStation = pathResult.endPoint || Store.getSortingStation();
+    const startPoint = pathResult.startPoint || Store.START_POINT;
 
     let rowsHtml = '';
-    let sumDist = 0, sumTravel = 0, sumPick = 0;
     steps.forEach((s, idx) => {
       const p = Store.getProductById(s.productId);
-      sumDist += s.distance || 0;
-      sumTravel += s.travelTime || 0;
-      sumPick += s.pickTime || 0;
       rowsHtml += `
         <tr>
           <td class="num">${idx + 1}</td>
@@ -40,11 +47,12 @@ const Report = (function () {
     });
 
     if (returnDistance > 0) {
+      const last = steps.length > 0 ? steps[steps.length - 1].to : startPoint;
       rowsHtml += `
         <tr style="background:rgba(255,107,53,0.08);">
           <td class="num" style="color:var(--accent-orange);font-weight:700;">↩</td>
-          <td colspan="4" style="color:var(--accent-orange);font-weight:600;">返回起点（分拣台/出入口）</td>
-          <td>-</td>
+          <td colspan="4" style="color:var(--accent-orange);font-weight:600;">返回分拣台 (${last.x},${last.y}) → (${sortingStation.x},${sortingStation.y})</td>
+          <td>分拣</td>
           <td class="num" style="color:var(--accent-orange);">${returnDistance} m</td>
           <td class="num" style="color:var(--accent-orange);">${Efficiency.formatTime(returnTravelTime)}</td>
           <td class="num">-</td>
@@ -52,6 +60,17 @@ const Report = (function () {
         </tr>
       `;
     }
+    rowsHtml += `
+      <tfoot>
+        <tr>
+          <td colspan="6" style="text-align:left;font-family:var(--font-mono);color:var(--text-muted);">明细合计 (${steps.length}步 + 回程)</td>
+          <td class="num">${Math.round((b.stepDistance + b.returnDistance) * 100) / 100} m</td>
+          <td class="num">${Efficiency.formatTime(b.stepTravelTime + b.returnTravelTime)}</td>
+          <td class="num">${Efficiency.formatTime(b.stepPickTime)}</td>
+          <td class="num">${Efficiency.formatTime(b.totalTimeSec)}</td>
+        </tr>
+      </tfoot>
+    `;
 
     return `
       <div class="report-header" style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid var(--border-strong);">
@@ -69,42 +88,59 @@ const Report = (function () {
       <div class="report-summary-grid">
         <div class="report-summary-item">
           <div class="report-summary-label">总行走距离</div>
-          <div class="report-summary-value">${pathResult.totalDistance}</div>
-          <div class="report-summary-unit">米</div>
+          <div class="report-summary-value">${b.totalDistance}</div>
+          <div class="report-summary-unit">米（步骤${b.stepDistance} + 回程${b.returnDistance}）</div>
         </div>
         <div class="report-summary-item">
           <div class="report-summary-label">预计总耗时</div>
-          <div class="report-summary-value">${Math.round(pathResult.totalTimeMin * 10) / 10}</div>
-          <div class="report-summary-unit">分钟</div>
+          <div class="report-summary-value">${Math.round(b.totalTimeSec / 60 * 100) / 100}</div>
+          <div class="report-summary-unit">分钟 / ${b.totalTimeSec}秒</div>
         </div>
         <div class="report-summary-item">
           <div class="report-summary-label">拣货件数</div>
           <div class="report-summary-value">${pathResult.itemCount}</div>
-          <div class="report-summary-unit">件</div>
+          <div class="report-summary-unit">件 / ${steps.length}步</div>
         </div>
         <div class="report-summary-item">
           <div class="report-summary-label">拣货效率</div>
-          <div class="report-summary-value">${pathResult.throughput}</div>
+          <div class="report-summary-value">${b.totalTimeSec > 0 ? Math.round(pathResult.itemCount / (b.totalTimeSec / 3600)) : 0}</div>
           <div class="report-summary-unit">件/小时</div>
         </div>
       </div>
 
-      <h4><i class="fas fa-info-circle"></i> 时间分布</h4>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+      <h4><i class="fas fa-info-circle"></i> 时间与路径对账</h4>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;">
         <div class="report-summary-item">
-          <div class="report-summary-label">行走耗时</div>
-          <div class="report-summary-value">${Efficiency.formatTime(pathResult.totalTravelTime)}</div>
-          <div class="report-summary-unit">占比 ${pathResult.totalTimeSec > 0 ? Math.round(pathResult.totalTravelTime / pathResult.totalTimeSec * 100) : 0}%</div>
+          <div class="report-summary-label">起点 / 分拣台</div>
+          <div class="report-summary-value" style="font-size:15px;">(${startPoint.x},${startPoint.y}) / (${sortingStation.x},${sortingStation.y})</div>
+          <div class="report-summary-unit">出入口 → 分拣台坐标</div>
         </div>
         <div class="report-summary-item">
-          <div class="report-summary-label">拣货操作耗时</div>
-          <div class="report-summary-value">${Efficiency.formatTime(pathResult.totalPickTime)}</div>
-          <div class="report-summary-unit">占比 ${pathResult.totalTimeSec > 0 ? Math.round(pathResult.totalPickTime / pathResult.totalTimeSec * 100) : 0}%</div>
+          <div class="report-summary-label">步距 / 回程距离</div>
+          <div class="report-summary-value" style="font-size:15px;">${b.stepDistance} / ${b.returnDistance} m</div>
+          <div class="report-summary-unit">合计 ${b.totalDistance} m</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">行走时间</div>
+          <div class="report-summary-value">${Efficiency.formatTime(b.totalTravelTime)}</div>
+          <div class="report-summary-unit">占比 ${b.totalTimeSec > 0 ? Math.round(b.totalTravelTime / b.totalTimeSec * 100) : 0}%</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">拣货操作时间</div>
+          <div class="report-summary-value">${Efficiency.formatTime(b.totalPickTime)}</div>
+          <div class="report-summary-unit">占比 ${b.totalTimeSec > 0 ? Math.round(b.totalPickTime / b.totalTimeSec * 100) : 0}%</div>
         </div>
         <div class="report-summary-item">
           <div class="report-summary-label">平均每件耗时</div>
-          <div class="report-summary-value">${pathResult.itemCount > 0 ? Math.round(pathResult.totalTimeSec / pathResult.itemCount) : 0}</div>
+          <div class="report-summary-value">${pathResult.itemCount > 0 ? Math.round(b.totalTimeSec / pathResult.itemCount) : 0}</div>
           <div class="report-summary-unit">秒/件</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">统计口径</div>
+          <div class="report-summary-value" style="font-size:13px;color:${b.check.distanceOK && b.check.travelTimeOK && b.check.timeSumOK ? '#52b788' : '#e63946'};">
+            ${b.check.distanceOK && b.check.travelTimeOK && b.check.timeSumOK ? '✅ 对账一致' : '⚠️ 数据差异'}
+          </div>
+          <div class="report-summary-unit">距离/时间/合计</div>
         </div>
       </div>
 
@@ -127,15 +163,6 @@ const Report = (function () {
         <tbody>
           ${rowsHtml || '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted);">暂无步骤数据</td></tr>'}
         </tbody>
-        <tfoot>
-          <tr>
-            <td colspan="6">合计</td>
-            <td class="num">${sumDist} m</td>
-            <td class="num">${Efficiency.formatTime(sumTravel)}</td>
-            <td class="num">${sumPick}s</td>
-            <td class="num">${Efficiency.formatTime(sumTravel + sumPick)}</td>
-          </tr>
-        </tfoot>
       </table>
     `;
   }
@@ -405,16 +432,20 @@ const Report = (function () {
 
     const returnDistance = pathResult.returnDistance || 0;
     const returnTravelTime = pathResult.returnTravelTime || 0;
+    const sortingStation = pathResult.endPoint || Store.getSortingStation();
+    const b = pathResult.breakdown || {
+      stepDistance: 0, stepTravelTime: 0, stepPickTime: 0, totalTimeSec: 0,
+    };
     if (returnDistance > 0) {
       const last = (pathResult.steps && pathResult.steps.length > 0) ? pathResult.steps[pathResult.steps.length - 1].to : Store.START_POINT;
       lines.push([
-        '返回起点',
+        '返回分拣台',
         '-',
         '-',
-        '"返回分拣台/出入口"',
+        '"拣完后到分拣台"',
         last.x, last.y,
-        Store.START_POINT.x, Store.START_POINT.y,
-        '-',
+        sortingStation.x, sortingStation.y,
+        '分拣',
         returnDistance,
         Math.round(returnTravelTime * 100) / 100,
         0,
@@ -422,16 +453,155 @@ const Report = (function () {
     }
 
     lines.push('');
+    lines.push(`=== 对账区 ===`);
+    lines.push(`[步骤段] 距离合计(m),${b.stepDistance}, 行走时间合计(s),${b.stepTravelTime}, 拣货时间合计(s),${b.stepPickTime}`);
+    lines.push(`[回程段] 距离(m),${b.returnDistance}, 回程时间(s),${b.returnTravelTime}`);
+    lines.push(`[总合计] 总距离(m),${b.totalDistance}, 总时间(s),${b.totalTimeSec}, 总时间(min),${Math.round(b.totalTimeSec / 60 * 100) / 100}`);
+    lines.push(`[起点] (${Store.START_POINT.x},${Store.START_POINT.y}), [分拣台] (${sortingStation.x},${sortingStation.y})`);
+    lines.push(`=== 对账区结束 ===`);
+    lines.push('');
     lines.push(`# Order ID,${orderId}`);
     lines.push(`# Algorithm,${pathResult.algorithm}`);
     lines.push(`# Total Distance (m),${pathResult.totalDistance}`);
     lines.push(`# Total Time (min),${Math.round(pathResult.totalTimeMin * 100) / 100}`);
     lines.push(`# Throughput (items/h),${pathResult.throughput}`);
     lines.push(`# Item Count,${pathResult.itemCount}`);
+    lines.push(`# Return Distance (m),${returnDistance}`);
+    lines.push(`# Return Travel (s),${Math.round(returnTravelTime * 100) / 100}`);
+    lines.push(`# Sorting Station,(${sortingStation.x},${sortingStation.y})`);
     lines.push(`# Generated At,${new Date().toISOString()}`);
 
     const bom = '\uFEFF';
     return bom + lines.join('\n');
+  }
+
+  function buildWaveMultiReportHtml(res) {
+    const mp = res.multiPicker;
+    let pickerRows = '';
+    if (mp && mp.pickers && mp.pickers.length) {
+      pickerRows = mp.pickers.map((r, i) => `
+        <tr>
+          <td>${r.pickerName || `拣货员${i + 1}`}</td>
+          <td class="num">${r.itemIds.length} 件</td>
+          <td class="num">${r.path.totalDistance} m</td>
+          <td class="num">${Math.round(r.path.totalTimeMin * 10) / 10} 分钟</td>
+          <td class="num">${r.path.throughput}</td>
+        </tr>
+      `).join('');
+    } else {
+      pickerRows = `
+        <tr>
+          <td>单人波次</td>
+          <td class="num">${res.mergedItemCount} 件</td>
+          <td class="num">${res.singleMergedPath.totalDistance} m</td>
+          <td class="num">${Math.round(res.singleMergedPath.totalTimeMin * 10) / 10} 分钟</td>
+          <td class="num">${res.singleMergedPath.throughput}</td>
+        </tr>
+      `;
+    }
+    return `
+      <div style="margin-bottom:14px;padding:14px 16px;background:linear-gradient(90deg,rgba(82,183,136,0.12),rgba(0,180,216,0.10));border-left:4px solid #52b788;border-radius:0 10px 10px 0;">
+        <div style="font-size:13px;color:var(--text-muted);font-family:var(--font-mono);">波次任务 · 多人协同</div>
+        <div style="font-family:var(--font-mono);font-weight:700;font-size:17px;color:var(--text-primary);margin-top:4px;">
+          📦 波次 ${res.waveId} &nbsp;·&nbsp; ${res.orderIds.length} 个订单 &nbsp;·&nbsp; 拣货 ${res.pickerCount} 人 &nbsp;·&nbsp; 去重后 ${res.mergedItemCount} 件
+        </div>
+      </div>
+
+      <h4><i class="fas fa-warehouse"></i> 全流程耗时对比</h4>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+        <div class="report-summary-item">
+          <div class="report-summary-label">单订单累计</div>
+          <div class="report-summary-value">${res.totalSeparateMin}</div>
+          <div class="report-summary-unit">分钟 / ${Math.round(res.totalSeparateDistance)}m</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">单人波次 (拣+分)</div>
+          <div class="report-summary-value">${res.overallSingleMin}</div>
+          <div class="report-summary-unit">分钟 (拣${res.pickStageMinSingle} + 分${res.sortTimeMin})</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">${res.pickerCount}人波次 (拣+分)</div>
+          <div class="report-summary-value" style="color:#52b788;">${res.overallMultiMin}</div>
+          <div class="report-summary-unit">分钟 (拣${res.pickStageMinMulti} + 分${res.sortTimeMin})</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">相对单人节省</div>
+          <div class="report-summary-value" style="color:${res.savedTimePct > 0 ? '#52b788' : '#e63946'};">${res.savedTimePct}%</div>
+          <div class="report-summary-unit">单人耗时基准</div>
+        </div>
+      </div>
+
+      <h4><i class="fas fa-users"></i> 各拣货员分配明细</h4>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th>拣货员</th>
+            <th>任务件数</th>
+            <th>行走距离</th>
+            <th>完成时间</th>
+            <th>个人效率</th>
+          </tr>
+        </thead>
+        <tbody>${pickerRows}</tbody>
+      </table>
+
+      <h4><i class="fas fa-box"></i> 分拣台阶段</h4>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+        <div class="report-summary-item">
+          <div class="report-summary-label">分拣件数</div>
+          <div class="report-summary-value">${res.totalSortItems}</div>
+          <div class="report-summary-unit">件（按订单拆出重复）</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">分拣耗时</div>
+          <div class="report-summary-value">${res.sortTimeMin}</div>
+          <div class="report-summary-unit">分钟 (${Math.round(res.sortTimeSec)} 秒)</div>
+        </div>
+        <div class="report-summary-item">
+          <div class="report-summary-label">波次整体吞吐</div>
+          <div class="report-summary-value">${res.overallMultiMin > 0 ? Math.round(res.totalItems / (res.overallMultiMin / 60)) : 0}</div>
+          <div class="report-summary-unit">件/小时</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function buildAlgorithmComparisonReport(compareData) {
+    const { algorithm, results, pickupMode } = compareData;
+    const keys = Object.keys(results);
+    let rows = keys.map(k => {
+      const r = results[k];
+      return `
+        <tr>
+          <td style="font-weight:700;font-family:var(--font-mono);">${k}</td>
+          <td class="num">${r.totalDistance} m</td>
+          <td class="num">${Math.round(r.totalTimeMin * 10) / 10} 分钟</td>
+          <td class="num">${r.throughput}</td>
+          <td class="num">${r.overallMin != null ? (r.overallMin + ' 分钟') : '-'}</td>
+        </tr>
+      `;
+    }).join('');
+    const bestKey = keys.slice().sort((a, b) => results[a].totalDistance - results[b].totalDistance)[0];
+    return `
+      <div style="margin-bottom:14px;padding:14px 16px;background:linear-gradient(90deg,rgba(255,107,53,0.10),rgba(26,58,95,0.08));border-left:4px solid var(--accent-orange);border-radius:0 10px 10px 0;">
+        <div style="font-size:13px;color:var(--text-muted);font-family:var(--font-mono);">算法快速对比</div>
+        <div style="font-family:var(--font-mono);font-weight:700;font-size:16px;color:var(--text-primary);margin-top:4px;">
+          🏁 距离最短：<span style="color:#52b788;">${bestKey}</span>（${results[bestKey].totalDistance} m）
+        </div>
+      </div>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th>方案</th>
+            <th>总距离</th>
+            <th>总耗时</th>
+            <th>吞吐 (件/h)</th>
+            <th>整体完成</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
   }
 
   function downloadFile(filename, content, mime = 'text/plain') {
@@ -451,6 +621,8 @@ const Report = (function () {
     buildMiniReport,
     buildWaveReportHtml,
     buildMultiPickerReportHtml,
+    buildWaveMultiReportHtml,
+    buildAlgorithmComparisonReport,
     exportPathCsv,
     downloadFile,
   };

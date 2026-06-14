@@ -7,39 +7,61 @@ const Efficiency = (function () {
   }
 
   function evaluatePath(steps, algorithm = 'CUSTOM', extra = {}) {
-    let totalDistance = 0;
-    let totalTravelTime = 0;
-    let totalPickTime = 0;
+    let stepDistance = 0;
+    let stepTravelTime = 0;
+    let stepPickTime = 0;
 
     steps.forEach(step => {
-      totalDistance += step.distance || 0;
-      totalTravelTime += step.travelTime || 0;
-      totalPickTime += step.pickTime || 0;
+      stepDistance += step.distance || 0;
+      stepTravelTime += step.travelTime || 0;
+      stepPickTime += step.pickTime || 0;
     });
 
     const returnDistance = extra.returnDistance || 0;
-    const returnTravelTime = extra.returnTravelTime || (returnDistance / (Store ? Store.WALK_SPEED : 1));
-    totalDistance += returnDistance;
-    totalTravelTime += returnTravelTime;
+    const returnTravelTime = extra.returnTravelTime != null ? extra.returnTravelTime : (returnDistance / (Store ? Store.WALK_SPEED : 1));
+
+    const totalDistance = stepDistance + returnDistance;
+    const totalTravelTime = stepTravelTime + returnTravelTime;
+    const totalPickTime = stepPickTime;
 
     const itemCount = steps.length;
     const totalTimeSec = totalTravelTime + totalPickTime;
     const totalHours = totalTimeSec / 3600;
     const throughput = totalHours > 0 ? itemCount / totalHours : 0;
 
-    return {
+    const breakdown = {
+      stepDistance: Math.round(stepDistance * 100) / 100,
+      stepTravelTime: Math.round(stepTravelTime * 100) / 100,
+      stepPickTime: Math.round(stepPickTime * 100) / 100,
+      returnDistance: Math.round(returnDistance * 100) / 100,
+      returnTravelTime: Math.round(returnTravelTime * 100) / 100,
+      totalDistance: Math.round(totalDistance * 100) / 100,
+      totalTravelTime: Math.round(totalTravelTime * 100) / 100,
+      totalPickTime: Math.round(totalPickTime * 100) / 100,
+      totalTimeSec: Math.round(totalTimeSec * 100) / 100,
+      check: {
+        distanceOK: Math.abs((stepDistance + returnDistance) - totalDistance) < 0.01,
+        travelTimeOK: Math.abs((stepTravelTime + returnTravelTime) - totalTravelTime) < 0.01,
+        timeSumOK: Math.abs((totalTravelTime + totalPickTime) - totalTimeSec) < 0.01,
+      },
+    };
+
+    const out = {
       algorithm,
       steps,
       itemCount,
-      totalDistance,
-      totalTravelTime,
-      totalPickTime,
-      returnDistance,
-      returnTravelTime,
-      totalTimeSec,
-      totalTimeMin: totalTimeSec / 60,
+      totalDistance: breakdown.totalDistance,
+      totalTravelTime: breakdown.totalTravelTime,
+      totalPickTime: breakdown.totalPickTime,
+      returnDistance: breakdown.returnDistance,
+      returnTravelTime: breakdown.returnTravelTime,
+      totalTimeSec: breakdown.totalTimeSec,
+      totalTimeMin: Math.round(breakdown.totalTimeSec / 60 * 100) / 100,
       throughput: Math.round(throughput * 10) / 10,
+      breakdown,
     };
+    if (extra._hint) out._hint = extra._hint;
+    return out;
   }
 
   function buildStepsFromOrder(order, orderList) {

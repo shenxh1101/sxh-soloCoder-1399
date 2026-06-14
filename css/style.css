@@ -170,6 +170,20 @@ body::before {
   box-shadow: var(--shadow-glow-cyan);
 }
 
+.btn-success {
+  background: linear-gradient(135deg, rgba(82,183,136,0.9) 0%, rgba(64,145,108,0.9) 100%);
+  color: #fff;
+  border: 1px solid #52b788;
+  font-weight: 600;
+}
+.btn-success:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(82,183,136,0.35);
+}
+.btn-success:active:not(:disabled) {
+  transform: translateY(0);
+}
+
 .btn-outline {
   background: transparent;
   color: var(--text-secondary);

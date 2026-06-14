@@ -102,8 +102,117 @@ const WavePicking = (function () {
     return { labels, distances, times };
   }
 
+  function runWaveMulti(orderIds, pickerCount, algorithm) {
+    const orders = Store.getState().orders;
+    const k = Math.max(1, Math.min(4, parseInt(pickerCount, 10)));
+    const separatePaths = [];
+    let totalSeparateTime = 0;
+    let totalSeparateDistance = 0;
+    let totalItems = 0;
+
+    orderIds.forEach(oid => {
+      const order = orders[oid];
+      if (!order) return;
+      const items = order.items.filter(pid => !!Store.getProductById(pid));
+      totalItems += items.length;
+      const path = PickingAlgorithm.solve(items, algorithm);
+      separatePaths.push({ orderId: oid, path, itemCount: items.length });
+      totalSeparateTime += path.totalTimeSec;
+      totalSeparateDistance += path.totalDistance;
+    });
+
+    const mergedItems = [];
+    const seen = new Set();
+    orderIds.forEach(oid => {
+      const order = orders[oid];
+      if (!order) return;
+      order.items.forEach(pid => {
+        if (!seen.has(pid) && Store.getProductById(pid)) {
+          seen.add(pid);
+          mergedItems.push(pid);
+        }
+      });
+    });
+
+    const singleMergedPath = PickingAlgorithm.solve(mergedItems, algorithm);
+    let mp = null;
+    if (k >= 2) {
+      mp = MultiPicker.splitForPickers(mergedItems, k, algorithm);
+    }
+
+    const pickStageSecSingle = singleMergedPath.totalTimeSec;
+    const pickStageSecMulti = mp ? mp.overallTimeMin * 60 : pickStageSecSingle;
+
+    const sortItemsPerOrder = {};
+    let totalSortItems = 0;
+    orderIds.forEach(oid => {
+      const order = orders[oid];
+      if (!order) return;
+      sortItemsPerOrder[oid] = order.items.filter(pid => !!Store.getProductById(pid)).length;
+      totalSortItems += sortItemsPerOrder[oid];
+    });
+    const sortTimeSec = totalSortItems * Store.SINGLE_SORT_TIME;
+    const sortTimeMin = Math.round(sortTimeSec / 60 * 100) / 100;
+
+    const waveId = `WM${Date.now().toString().slice(-5)}`;
+    const overallSingleMin = Math.round((pickStageSecSingle + sortTimeSec) / 60 * 100) / 100;
+    const overallMultiMin = Math.round((pickStageSecMulti + sortTimeSec) / 60 * 100) / 100;
+
+    const waveResult = {
+      waveId,
+      multi: true,
+      orderIds: [...orderIds],
+      algorithm,
+      pickerCount: k,
+      mergedItems,
+      mergedItemCount: mergedItems.length,
+      totalItems,
+      duplicateSaved: totalItems - mergedItems.length,
+      separatePaths,
+      totalSeparateDistance,
+      singleMergedPath,
+      multiPicker: mp,
+      sortItemsPerOrder,
+      totalSortItems,
+      sortTimeSec,
+      sortTimeMin,
+      pickStageSecSingle,
+      pickStageMinSingle: Math.round(pickStageSecSingle / 60 * 100) / 100,
+      pickStageSecMulti: pickStageSecMulti,
+      pickStageMinMulti: Math.round(pickStageSecMulti / 60 * 100) / 100,
+      overallSingleMin,
+      overallMultiMin,
+      savedTimePct: overallSingleMin > 0
+        ? Math.round((overallSingleMin - overallMultiMin) / overallSingleMin * 1000) / 10
+        : 0,
+      totalSeparateMin: Math.round(totalSeparateTime / 60 * 100) / 100,
+    };
+    return waveResult;
+  }
+
+  function buildWaveMultiChartData(res) {
+    const labels = [
+      '单订单累计',
+      '单人波次',
+      `${res.pickerCount}人波次`,
+    ];
+    const distances = [
+      Math.round(res.totalSeparateDistance),
+      res.singleMergedPath.totalDistance,
+      res.multiPicker ? Math.round(res.multiPicker.totalDistance) : res.singleMergedPath.totalDistance,
+    ];
+    const times = [
+      res.totalSeparateMin,
+      res.overallSingleMin,
+      res.overallMultiMin,
+    ];
+    return { labels, distances, times };
+  }
+
   return {
     runWave,
+    runWaveMulti,
     buildWaveChartData,
+    buildWaveMultiChartData,
   };
 })();

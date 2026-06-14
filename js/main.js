@@ -297,6 +297,212 @@
         this.flash('info', '已清空所有障碍');
       });
 
+      // ===== 波次多人 =====
+      this._wavePickers = 3;
+      document.querySelectorAll('#wavePickerRow .picker-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('#wavePickerRow .picker-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this._wavePickers = parseInt(btn.dataset.wavePickers, 10) || 3;
+        });
+      });
+      document.getElementById('btnRunWaveMulti').addEventListener('click', () => {
+        const waveBox = document.getElementById('waveCheckboxes');
+        const checked = waveBox.querySelectorAll('input[data-wave-order]:checked');
+        const ids = Array.from(checked).map(c => c.value);
+        if (ids.length < 3 || ids.length > 5) {
+          this.flash('warn', '多人协同波次需要选择3-5个订单');
+          return;
+        }
+        const n = this._wavePickers;
+        if (n < 2 || n > 4) {
+          this.flash('warn', '请选择 2-4 个拣货员');
+          return;
+        }
+        const algo = Store.getState().algorithm;
+        const res = WavePicking.runWaveMulti(ids, n, algo);
+        Store.setWaveResult(res);
+        Store.setPathResult(res.singleMergedPath);
+        if (res.multiPicker) Store.setMultiPickerResult(res.multiPicker);
+        document.getElementById('waveMultiResult').classList.remove('hidden');
+        document.getElementById('waveSingleTime').textContent = `${res.overallSingleMin} 分钟`;
+        document.getElementById('waveMultiTime').textContent = `${res.overallMultiMin} 分钟`;
+        document.getElementById('waveMultiSave').textContent = `${res.savedTimePct}%`;
+        // 图表：三人对比
+        const cd = WavePicking.buildWaveMultiChartData(res);
+        const c = document.getElementById('waveChart');
+        if (c && c.chartInstance) c.chartInstance.destroy();
+        const chartCanvas = c.getContext('2d');
+        c.chartInstance = new Chart(chartCanvas, {
+          type: 'bar',
+          data: {
+            labels: cd.labels,
+            datasets: [
+              { label: '总距离 (m)', data: cd.distances, backgroundColor: 'rgba(255,107,53,0.6)', yAxisID: 'y' },
+              { label: '总时间 (分钟)', data: cd.times, backgroundColor: 'rgba(0,180,216,0.6)', yAxisID: 'y1' },
+            ],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true, position: 'left', title: { display: true, text: '距离(m)' } },
+              y1: { beginAtZero: true, position: 'right', title: { display: true, text: '时间(分钟)' }, grid: { drawOnChartArea: false } },
+            },
+          },
+        });
+        this.flash('success', `多人波次完成 · ${n}人节省${res.savedTimePct}%时间`);
+      });
+
+      // ===== 障碍编辑类型 =====
+      Store.subscribe((event, e) => {
+        if (event !== 'editMode:changed') return;
+        const mode = e.mode;
+        const row = document.getElementById('obstacleTypeRow');
+        if (!row) return;
+        if (mode === 'obstacle') row.style.display = '';
+        else row.style.display = 'none';
+        this.updateEditModeBtns();
+      });
+      document.querySelectorAll('#obstacleTypeRowBtns .picker-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('#obstacleTypeRowBtns .picker-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const type = btn.dataset.obstacleType;
+          const dirRow = document.getElementById('oneWayDirRow');
+          if (dirRow) dirRow.style.display = (type === 'one_way') ? '' : 'none';
+        });
+      });
+      document.querySelectorAll('#oneWayDirBtns .picker-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('#oneWayDirBtns .picker-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+        });
+      });
+
+      // ===== 算法对比 =====
+      this._compareMode = 'single';
+      this._comparePickers = 3;
+      document.querySelectorAll('[data-compare-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('[data-compare-mode]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this._compareMode = btn.dataset.compareMode;
+          const multiRow = document.getElementById('compareMultiPickers');
+          if (multiRow) multiRow.style.display = (this._compareMode === 'multi' || this._compareMode === 'wave') ? '' : 'none';
+        });
+      });
+      document.querySelectorAll('#comparePickerRow .picker-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('#comparePickerRow .picker-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this._comparePickers = parseInt(btn.dataset.comparePickers, 10) || 3;
+        });
+      });
+      document.getElementById('btnCompareRun').addEventListener('click', () => {
+        const st = Store.getState();
+        const results = {};
+        const mode = this._compareMode;
+        const n = this._comparePickers;
+        const waveBox = document.getElementById('waveCheckboxes');
+
+        function collectItems() {
+          if (mode === 'wave') {
+            const checked = waveBox.querySelectorAll('input[data-wave-order]:checked');
+            const ids = Array.from(checked).map(c => c.value);
+            if (ids.length < 3 || ids.length > 5) return null;
+            const merged = [];
+            const seen = new Set();
+            ids.forEach(oid => {
+              const ord = st.orders[oid];
+              if (!ord) return;
+              ord.items.forEach(pid => {
+                if (!seen.has(pid) && Store.getProductById(pid)) {
+                  seen.add(pid); merged.push(pid);
+                }
+              });
+            });
+            return { mode, items: merged, waveIds: ids, n };
+          } else if (mode === 'multi') {
+            return { mode, items: [...st.currentOrderItems], n };
+          }
+          return { mode, items: [...st.currentOrderItems] };
+        }
+
+        const ctx = collectItems();
+        if (!ctx) { this.flash('warn', '波次模式请选择3-5个订单'); return; }
+        if (ctx.items.length < 3) { this.flash('warn', '订单商品至少3件才能对比'); return; }
+
+        const algos = ['NN', 'MST'];
+        algos.forEach(alg => {
+          if (ctx.mode === 'single') {
+            const r = PickingAlgorithm.solve(ctx.items, alg);
+            results[alg] = {
+              totalDistance: r.totalDistance,
+              totalTimeMin: r.totalTimeMin,
+              throughput: r.throughput,
+            };
+          } else {
+            const mp = MultiPicker.splitForPickers(ctx.items, ctx.n, alg);
+            const pickStageSec = mp.overallTimeMin * 60;
+            let totalSort = 0;
+            if (ctx.mode === 'wave') {
+              ctx.waveIds.forEach(oid => {
+                const ord = st.orders[oid];
+                if (!ord) return;
+                totalSort += ord.items.filter(p => Store.getProductById(p)).length;
+              });
+            } else {
+              totalSort = ctx.items.length;
+            }
+            const sortSec = totalSort * Store.SINGLE_SORT_TIME;
+            const overallMin = Math.round((pickStageSec + sortSec) / 60 * 100) / 100;
+            results[`${alg} · ${ctx.n}人`] = {
+              totalDistance: Math.round(mp.totalDistance),
+              totalTimeMin: mp.overallTimeMin,
+              throughput: mp.overallThroughput,
+              overallMin,
+            };
+          }
+        });
+
+        const html = Report.buildAlgorithmComparisonReport({
+          algorithm: algos.join(' + '),
+          results,
+          pickupMode: ctx.mode,
+        });
+        document.getElementById('compareReport').innerHTML = html;
+        const box = document.getElementById('compareChartBox');
+        box.style.display = '';
+        const canvas = document.getElementById('compareChart');
+        if (canvas.chartInstance) canvas.chartInstance.destroy();
+        const keys = Object.keys(results);
+        canvas.chartInstance = new Chart(canvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: keys,
+            datasets: [
+              { label: '总距离 (m)', data: keys.map(k => results[k].totalDistance), backgroundColor: 'rgba(255,107,53,0.7)', yAxisID: 'y' },
+              {
+                label: ctx.mode === 'single' ? '总时间 (分钟)' : '整体完成 (分钟)',
+                data: keys.map(k => results[k].overallMin != null ? results[k].overallMin : results[k].totalTimeMin),
+                backgroundColor: 'rgba(0,180,216,0.7)',
+                yAxisID: 'y1',
+              },
+              { label: '吞吐 (件/h)', data: keys.map(k => results[k].throughput), backgroundColor: 'rgba(82,183,136,0.7)', yAxisID: 'y2' },
+            ],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true, position: 'left', title: { display: true, text: '距离(m)' } },
+              y1: { beginAtZero: true, position: 'right', title: { display: true, text: '时间(分钟)' }, grid: { drawOnChartArea: false } },
+              y2: { beginAtZero: true, position: 'right', title: { display: true, text: '件/h' }, grid: { drawOnChartArea: false }, offset: true },
+            },
+          },
+        });
+        this.flash('success', `算法对比完成 · ${keys.length}种方案`);
+      });
+
       document.getElementById('btnReportMulti').addEventListener('click', () => {
         const mp = Store.getState().multiPickerResult;
         if (!mp || !mp.pickers || mp.pickers.length <= 1) {
@@ -311,6 +517,12 @@
       document.getElementById('btnGenerateReport').addEventListener('click', () => {
         const st = Store.getState();
         if (st.multiPickerResult && st.multiPickerResult.pickers && st.multiPickerResult.pickers.length > 1) {
+          if (st.waveResult && st.waveResult.multi) {
+            const html = Report.buildWaveMultiReportHtml(st.waveResult);
+            document.getElementById('reportContent').innerHTML = html;
+            this.openModal('reportModal');
+            return;
+          }
           const html = Report.buildMultiPickerReportHtml(st.multiPickerResult);
           document.getElementById('reportContent').innerHTML = html;
           this.openModal('reportModal');
@@ -321,7 +533,9 @@
           return;
         }
         let html;
-        if (st.waveResult) {
+        if (st.waveResult && st.waveResult.multi) {
+          html = Report.buildWaveMultiReportHtml(st.waveResult);
+        } else if (st.waveResult) {
           html = Report.buildWaveReportHtml(st.waveResult);
         } else {
           html = Report.buildReportHtml(st.pathResult, {

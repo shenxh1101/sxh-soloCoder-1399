@@ -123,7 +123,18 @@
               </div>
             </div>
             <button id="btnRunWave" class="btn btn-primary btn-block mt-2">
-              <i class="fas fa-layer-group"></i> 执行波次拣货
+              <i class="fas fa-layer-group"></i> 执行波次拣货（单人）
+            </button>
+            <div class="form-row mt-2">
+              <label>多人协同模式 - 拣货员数量</label>
+              <div class="picker-row" id="wavePickerRow">
+                <button class="picker-btn" data-wave-pickers="2">2人</button>
+                <button class="picker-btn active" data-wave-pickers="3">3人</button>
+                <button class="picker-btn" data-wave-pickers="4">4人</button>
+              </div>
+            </div>
+            <button id="btnRunWaveMulti" class="btn btn-success btn-block mt-2">
+              <i class="fas fa-users"></i> 多人协同接管波次（拣货+分拣总耗时）
             </button>
             <div class="wave-chart-box mt-2">
               <canvas id="waveChart" height="180"></canvas>
@@ -133,6 +144,14 @@
                 <i class="fas fa-chart-line"></i>
                 <span>距离节省 <strong id="waveSaveDist">0%</strong></span>
                 <span>效率提升 <strong id="waveGain">0%</strong></span>
+              </div>
+            </div>
+            <div id="waveMultiResult" class="wave-result mt-2 hidden" style="background:linear-gradient(90deg,rgba(82,183,136,0.10),rgba(0,180,216,0.08));border-color:#52b788;">
+              <div class="gain-box" style="color:var(--text-primary);">
+                <i class="fas fa-users" style="color:#52b788;"></i>
+                <span>单人波次耗时 <strong id="waveSingleTime">-</strong></span>
+                <span>多人波次耗时 <strong id="waveMultiTime" style="color:#52b788;">-</strong></span>
+                <span>节省 <strong id="waveMultiSave" style="color:#52b788;">-</strong></span>
               </div>
             </div>
           </div>
@@ -256,9 +275,26 @@
           <div class="form-row">
             <label>编辑模式 (点击地图格子)</label>
             <div class="picker-row" id="editModeRow">
-              <button class="picker-btn" data-edit="null">浏览</button>
-              <button class="picker-btn" data-edit="obstacle">🧱 障碍</button>
+              <button class="picker-btn active" data-edit="null">浏览</button>
+              <button class="picker-btn" data-edit="obstacle">🧱 障碍/通道</button>
               <button class="picker-btn" data-edit="sorting">📦 分拣台</button>
+            </div>
+          </div>
+          <div class="form-row mt-2" id="obstacleTypeRow" style="display:none;">
+            <label>障碍/通道类型（点击切换效果）</label>
+            <div class="picker-row" id="obstacleTypeRowBtns">
+              <button class="picker-btn active" data-obstacle-type="obstacle">🧱 永久障碍</button>
+              <button class="picker-btn" data-obstacle-type="temp_closed">⚠️ 临时封闭</button>
+              <button class="picker-btn" data-obstacle-type="one_way">➡ 单向通道</button>
+            </div>
+          </div>
+          <div class="form-row mt-2" id="oneWayDirRow" style="display:none;">
+            <label>单向通道方向（设置单向时默认方向）</label>
+            <div class="picker-row" id="oneWayDirBtns">
+              <button class="picker-btn" data-oneway-dir="up">⬆ 上</button>
+              <button class="picker-btn" data-oneway-dir="down">⬇ 下</button>
+              <button class="picker-btn active" data-oneway-dir="right">➡ 右</button>
+              <button class="picker-btn" data-oneway-dir="left">⬅ 左</button>
             </div>
           </div>
           <div class="btn-row mt-2">
@@ -269,7 +305,7 @@
               <i class="fas fa-file-invoice"></i> 多人报告
             </button>
           </div>
-          <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 选择编辑模式后点击地图格子：障碍可放置/移除，分拣台可重新定位</div>
+          <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 选择编辑模式后点击地图格子：障碍模式可按类型切换，分拣台可重新定位</div>
         </div>
       </section>
 
@@ -300,6 +336,38 @@
             </button>
           </div>
           <div class="slot-hint mt-2"><i class="fas fa-lightbulb"></i> 智能优化将热门商品移动至勾选的热门区域</div>
+        </div>
+      </section>
+
+      <!-- 算法快速对比 -->
+      <section class="card mt-3">
+        <div class="card-header">
+          <h2><i class="fas fa-balance-scale accent-orange"></i> 算法快速对比</h2>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label>对比场景</label>
+            <div class="picker-row">
+              <button class="picker-btn active" data-compare-mode="single">单订单</button>
+              <button class="picker-btn" data-compare-mode="multi">多人协同（当前订单）</button>
+              <button class="picker-btn" data-compare-mode="wave">波次拣货（勾选订单）</button>
+            </div>
+          </div>
+          <div class="form-row mt-2" id="compareMultiPickers" style="display:none;">
+            <label>多人模式拣货员数量</label>
+            <div class="picker-row" id="comparePickerRow">
+              <button class="picker-btn" data-compare-pickers="2">2人</button>
+              <button class="picker-btn active" data-compare-pickers="3">3人</button>
+              <button class="picker-btn" data-compare-pickers="4">4人</button>
+            </div>
+          </div>
+          <button id="btnCompareRun" class="btn btn-outline btn-block mt-2" style="border-color:var(--accent-orange);color:var(--accent-orange);">
+            <i class="fas fa-forward"></i> 同时跑 NN 和 MST 两种算法对比
+          </button>
+          <div class="mt-2" id="compareChartBox" style="display:none;">
+            <canvas id="compareChart" height="180"></canvas>
+          </div>
+          <div id="compareReport" class="mt-2" style="font-size:13px;"></div>
         </div>
       </section>
 

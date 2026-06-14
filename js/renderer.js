@@ -80,14 +80,29 @@ const Renderer = (function () {
     const g = createEl('g', { class: 'grid-layer' });
     const editMode = Store.getState().editMode;
     const obstacles = Store.getState().obstacles;
-    const obstacleSet = new Set(obstacles.map(o => `${o.x},${o.y}`));
+    const obstacleMap = {};
+    obstacles.forEach(o => { obstacleMap[`${o.x},${o.y}`] = o; });
 
     for (let y = 0; y < GRID; y++) {
       for (let x = 0; x < GRID; x++) {
         const zone = Slotting.determineZone(x, y);
         const rect = cellRect(x, y);
         const colors = ZONE_COLORS[zone];
-        const isObs = obstacleSet.has(`${x},${y}`);
+        const ob = obstacleMap[`${x},${y}`];
+        let fill = colors.fill, stroke = colors.stroke, sw = 1, so = 0.35;
+        let iconHtml = '', iconColor = '', arrow = null;
+        if (ob) {
+          if (ob.type === 'temp_closed') {
+            fill = 'rgba(255,193,7,0.25)'; stroke = '#ffc107'; sw = 2; so = 0.9;
+            iconHtml = '⚠️';
+          } else if (ob.type === 'one_way') {
+            fill = 'rgba(0,180,216,0.12)'; stroke = '#00b4d8'; sw = 2; so = 0.95;
+            arrow = ob.dir || 'right';
+          } else {
+            fill = 'rgba(108,51,51,0.55)'; stroke = '#e63946'; sw = 2; so = 0.9;
+            iconHtml = '🧱';
+          }
+        }
         const r = createEl('rect', {
           class: 'cell-rect' + (editMode ? ' edit-mode' : ''),
           x: rect.x,
@@ -96,28 +111,56 @@ const Renderer = (function () {
           height: rect.h,
           rx: 6,
           ry: 6,
-          fill: isObs ? 'rgba(108,51,51,0.55)' : colors.fill,
-          stroke: isObs ? '#e63946' : colors.stroke,
-          'stroke-width': isObs ? 2 : 1,
-          'stroke-opacity': isObs ? 0.9 : 0.35,
+          fill,
+          stroke,
+          'stroke-width': sw,
+          'stroke-opacity': so,
           'data-x': x,
           'data-y': y,
           'data-zone': zone,
         });
         g.appendChild(r);
 
-        if (isObs) {
+        if (ob) {
           const center = cellCenter(x, y);
-          const icon = createEl('text', {
-            x: center.cx,
-            y: center.cy + 5,
-            'text-anchor': 'middle',
-            'font-size': 18,
-            'pointer-events': 'none',
-            class: 'obstacle-icon',
-          });
-          icon.innerHTML = '🧱';
-          g.appendChild(icon);
+          if (arrow) {
+            const arrows = { right: '➡', left: '⬅', up: '⬆', down: '⬇' };
+            const angleMap = { right: 0, down: 90, left: 180, up: 270 };
+            const arrowText = createEl('text', {
+              x: center.cx,
+              y: center.cy + 6,
+              'text-anchor': 'middle',
+              'font-size': 20,
+              'pointer-events': 'none',
+              class: 'obstacle-icon',
+              fill: '#00b4d8',
+            });
+            arrowText.textContent = arrows[arrow] || '➡';
+            g.appendChild(arrowText);
+            const label = createEl('text', {
+              x: center.cx,
+              y: rect.y + 10,
+              'text-anchor': 'middle',
+              'font-size': 9,
+              'pointer-events': 'none',
+              fill: '#0077b6',
+              'font-family': 'JetBrains Mono, monospace',
+              'font-weight': 700,
+            });
+            label.textContent = '单向';
+            g.appendChild(label);
+          } else {
+            const icon = createEl('text', {
+              x: center.cx,
+              y: center.cy + 5,
+              'text-anchor': 'middle',
+              'font-size': 18,
+              'pointer-events': 'none',
+              class: 'obstacle-icon',
+            });
+            icon.textContent = iconHtml;
+            g.appendChild(icon);
+          }
         }
       }
     }
@@ -221,7 +264,21 @@ const Renderer = (function () {
         const x = parseInt(cell.dataset.x, 10);
         const y = parseInt(cell.dataset.y, 10);
         if (mode === 'obstacle') {
-          Store.toggleObstacle(x, y);
+          let obsType = 'obstacle';
+          let oneWayDir = 'right';
+          let cycle = false;
+          const activeTypeBtn = document.querySelector('#obstacleTypeRowBtns .picker-btn.active');
+          if (activeTypeBtn) obsType = activeTypeBtn.dataset.obstacleType || 'obstacle';
+          const activeDirBtn = document.querySelector('#oneWayDirBtns .picker-btn.active');
+          if (activeDirBtn) oneWayDir = activeDirBtn.dataset.onewayDir || 'right';
+          const existing = Store.getObstacleAt(x, y);
+          let opts;
+          if (existing) {
+            opts = { cycle: true, dir: oneWayDir };
+          } else {
+            opts = { type: obsType, dir: oneWayDir };
+          }
+          Store.toggleObstacle(x, y, opts);
           Renderer.renderFull();
         } else if (mode === 'sorting') {
           Store.setSortingStation(x, y);
@@ -385,24 +442,48 @@ const Renderer = (function () {
     if (!returnPath || returnPath.length === 0) {
       if (steps.length > 0) {
         const last = steps[steps.length - 1];
-        returnPath = [last.to, Store.START_POINT];
+        const sortingStation = Store.getSortingStation();
+        const sp = PickingAlgorithm.shortestPath(last.to, sortingStation);
+        returnPath = sp.path;
       }
     }
     if (returnPath && returnPath.length > 1) {
       const returnD = buildSegmentFromGridPath(returnPath, steps.length, steps.length + 1, true);
+      const lastStep = steps[steps.length - 1];
+      const ep = pathResult.endPoint || Store.getSortingStation();
+      const lineColor = lastStep && lastStep.gridPath && (color && color.stroke) ? color.stroke : '#ff6b35';
       const line = createEl('path', {
         d: returnD,
         fill: 'none',
-        stroke: '#ff6b35',
+        stroke: lineColor,
         'stroke-width': 3,
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
         'stroke-dasharray': '8 5',
-        opacity: 0.7,
+        opacity: 0.8,
         class: 'path-line-return',
         filter: 'url(#pathGlow)',
       });
       g.appendChild(line);
+      const svgRoot = document.getElementById('warehouseSvg');
+      if (svgRoot) {
+        const labels = svgRoot.querySelectorAll('.sorting-label');
+        labels.forEach(l => l.remove());
+      }
+      if (ep && !(ep.x === 0 && ep.y === 0)) {
+        const [ex, ey] = gridToSvg(ep.x, ep.y);
+        const backLbl = createEl('text', {
+          x: ex, y: ey - 34,
+          class: 'sorting-label',
+          'text-anchor': 'middle',
+          fill: color ? color.stroke : '#ff6b35',
+          'font-family': 'JetBrains Mono, monospace',
+          'font-size': '10px',
+          'font-weight': '700',
+        });
+        backLbl.textContent = '↩分拣台';
+        g.appendChild(backLbl);
+      }
     }
 
     const bubbleG = createEl('g', { class: 'bubbles-layer' });

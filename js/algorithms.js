@@ -31,7 +31,11 @@ const PickingAlgorithm = (function () {
         if (visited[ny][nx]) continue;
         const isTarget = (nx === tx && ny === ty);
         const isSource = (nx === sx && ny === sy);
-        if (!isTarget && !isSource && Store.isBlocked(nx, ny)) continue;
+        let blocked = false;
+        if (!isTarget && !isSource) {
+          blocked = !Store.canTraverseFromTo(cx, cy, nx, ny);
+        }
+        if (blocked) continue;
         visited[ny][nx] = true;
         parent[ny][nx] = [cx, cy];
         queue.push([nx, ny]);
@@ -210,7 +214,9 @@ const PickingAlgorithm = (function () {
 
   function orderToSteps(productIds, nodeOrder, algorithm) {
     const nodeMap = {};
-    nodeMap['__START__'] = { id: '__START__', x: Store.START_POINT.x, y: Store.START_POINT.y };
+    const start = Store.START_POINT;
+    const sortSta = Store.getSortingStation();
+    nodeMap['__START__'] = { id: '__START__', x: start.x, y: start.y };
     productIds.forEach(pid => {
       const p = Store.getProductById(pid);
       if (p) nodeMap[pid] = { id: pid, x: p.x, y: p.y };
@@ -218,6 +224,9 @@ const PickingAlgorithm = (function () {
 
     const steps = [];
     const pathSegments = [];
+    let sumStepDistance = 0;
+    let sumStepTravel = 0;
+    let sumStepPick = 0;
     for (let i = 1; i < nodeOrder.length - 1; i++) {
       const fromId = nodeOrder[i - 1];
       const toId = nodeOrder[i];
@@ -226,6 +235,8 @@ const PickingAlgorithm = (function () {
       const prod = Store.getProductById(toId);
       const sp = shortestPath(from, to);
       const dist = sp.distance;
+      const tTime = dist / Store.WALK_SPEED;
+      const pTime = prod ? prod.pickTime : Store.SINGLE_PICK_TIME;
       pathSegments.push(sp.path);
       steps.push({
         stepIndex: i,
@@ -233,27 +244,44 @@ const PickingAlgorithm = (function () {
         from: { x: from.x, y: from.y },
         to: { x: to.x, y: to.y },
         distance: dist,
-        travelTime: dist / Store.WALK_SPEED,
-        pickTime: prod ? prod.pickTime : Store.SINGLE_PICK_TIME,
+        travelTime: tTime,
+        pickTime: pTime,
         gridPath: sp.path,
       });
+      sumStepDistance += dist;
+      sumStepTravel += tTime;
+      sumStepPick += pTime;
     }
 
     let returnDistance = 0;
     let returnPath = [];
+    let returnTravelTime = 0;
     if (nodeOrder.length >= 2) {
       const lastId = nodeOrder[nodeOrder.length - 2];
       const last = nodeMap[lastId];
       if (last) {
-        const rsp = shortestPath(last, Store.START_POINT);
+        const rsp = shortestPath(last, sortSta);
         returnDistance = rsp.distance;
         returnPath = rsp.path;
+        returnTravelTime = returnDistance / Store.WALK_SPEED;
       }
     }
 
-    const result = Efficiency.evaluatePath(steps, algorithm, { returnDistance });
+    const result = Efficiency.evaluatePath(steps, algorithm, {
+      returnDistance,
+      returnTravelTime,
+      _hint: {
+        startPoint: { ...start },
+        sortingStation: { ...sortSta },
+        stepSumDistance: sumStepDistance,
+        stepSumTravel: sumStepTravel,
+        stepSumPick: sumStepPick,
+      },
+    });
     result.gridPathSegments = pathSegments;
     result.returnPath = returnPath;
+    result.endPoint = { ...sortSta };
+    result.startPoint = { ...start };
     return result;
   }
 
