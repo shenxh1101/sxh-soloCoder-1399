@@ -116,27 +116,52 @@ const MultiPicker = (function () {
 
   function balanceByCapacity(clusters, pickerConfigs) {
     const k = Math.min(clusters.length, pickerConfigs.length);
-    const load = pickerConfigs.slice(0, k).map(() => []);
-    const timeSum = pickerConfigs.slice(0, k).map(() => 0);
+    const load = pickerConfigs.slice(0, k).map((cfg, idx) => (clusters[idx] || []).slice());
+    const timeSum = load.map((ids, idx) => estimatePickerTime(ids, pickerConfigs[idx]).estimatedTotalSec);
+    const sizes = load.map(l => l.length);
 
-    const allItems = [];
-    clusters.forEach(g => g.forEach(id => allItems.push(id)));
-
-    allItems.forEach(id => {
-      let bestPicker = 0, bestDelta = Infinity;
-      for (let i = 0; i < k; i++) {
-        if (!pickerConfigs[i].active) continue;
-        const testLoad = [...load[i], id];
-        const est = estimatePickerTime(testLoad, pickerConfigs[i]);
-        const delta = est.estimatedTotalSec - timeSum[i];
-        if (delta < bestDelta) {
-          bestDelta = delta;
-          bestPicker = i;
+    let maxIter = Math.max(20, clusters.reduce((n, g) => n + g.length, 0) * 3);
+    while (maxIter-- > 0) {
+      let moved = false;
+      for (let from = 0; from < k; from++) {
+        if (!pickerConfigs[from].active || load[from].length <= 1) continue;
+        for (let to = 0; to < k; to++) {
+          if (to === from || !pickerConfigs[to].active) continue;
+          let bestItemIdx = -1, bestMakespan = Infinity;
+          for (let i = 0; i < load[from].length; i++) {
+            const id = load[from][i];
+            const newFromLoad = load[from].slice(0, i).concat(load[from].slice(i + 1));
+            const newToLoad = [...load[to], id];
+            const tFrom = estimatePickerTime(newFromLoad, pickerConfigs[from]).estimatedTotalSec;
+            const tTo = estimatePickerTime(newToLoad, pickerConfigs[to]).estimatedTotalSec;
+            let makespan = 0;
+            for (let p = 0; p < k; p++) {
+              if (!pickerConfigs[p].active) continue;
+              if (p === from) makespan = Math.max(makespan, tFrom);
+              else if (p === to) makespan = Math.max(makespan, tTo);
+              else makespan = Math.max(makespan, timeSum[p]);
+            }
+            if (makespan < bestMakespan) {
+              bestMakespan = makespan;
+              bestItemIdx = i;
+            }
+          }
+          const curMakespan = timeSum.reduce((m, t, p) => Math.max(m, pickerConfigs[p].active ? t : 0), 0);
+          if (bestItemIdx >= 0 && bestMakespan < curMakespan - 0.001) {
+            const id = load[from].splice(bestItemIdx, 1)[0];
+            load[to].push(id);
+            timeSum[from] = estimatePickerTime(load[from], pickerConfigs[from]).estimatedTotalSec;
+            timeSum[to] = estimatePickerTime(load[to], pickerConfigs[to]).estimatedTotalSec;
+            sizes[from]--;
+            sizes[to]++;
+            moved = true;
+            break;
+          }
         }
+        if (moved) break;
       }
-      load[bestPicker].push(id);
-      timeSum[bestPicker] += bestDelta;
-    });
+      if (!moved) break;
+    }
     return load;
   }
 
